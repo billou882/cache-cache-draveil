@@ -52,12 +52,13 @@ document.querySelectorAll('.color-btn').forEach(btn => {
     userColor = e.target.dataset.color;
   });
 });
-document.getElementById('btn-role-hider').addEventListener('click', () => { userRole = 'seeker'; updateRoleUI(); });
-document.getElementById('btn-role-seeker').addEventListener('click', () => { userRole = 'hider'; updateRoleUI(); });
+
+document.getElementById('btn-role-hider').addEventListener('click', () => { userRole = 'hider'; updateRoleUI(); });
+document.getElementById('btn-role-seeker').addEventListener('click', () => { userRole = 'seeker'; updateRoleUI(); });
 
 function updateRoleUI() {
-  document.getElementById('btn-role-hider').classList.toggle('selected', userRole === 'seeker');
-  document.getElementById('btn-role-seeker').classList.toggle('selected', userRole === 'hider');
+  document.getElementById('btn-role-hider').classList.toggle('selected', userRole === 'hider');
+  document.getElementById('btn-role-seeker').classList.toggle('selected', userRole === 'seeker');
 }
 
 // NAVIGATION ONGLETS
@@ -190,7 +191,6 @@ function startGps() {
 
     if (userRole === 'seeker') {
       if (!circleCenter) {
-        // Génération aléatoire initiale autour du chercheur (décalage de ~50 à 100m)
         const randomAngle = Math.random() * 2 * Math.PI;
         const randomDist = 60 + Math.random() * 60; 
         const initLat = userPos[0] + (randomDist / 111320) * Math.cos(randomAngle);
@@ -203,7 +203,6 @@ function startGps() {
           radius: circleRadius 
         });
       } else {
-        // Effet de glissement si le chercheur s'approche du bord (touche le cercle)
         const dist = getDistanceInMeters(userPos[0], userPos[1], circleCenter[0], circleCenter[1]);
         if (dist >= circleRadius) {
           const angle = Math.atan2(userPos[1] - circleCenter[1], userPos[0] - circleCenter[0]);
@@ -283,7 +282,9 @@ function listenSync() {
       document.getElementById('btn-confirm-hider').style.display = 'block';
       document.getElementById('status-text').innerText = "Le chercheur t'a trouvé ! Confirms-tu ?";
     } else if (status === 'CONFIRMED') {
-      db.ref(`rooms/${roomCode}/players/hider/survivalTime`).set(survivalTimeFormatted);
+      if (userRole === 'hider') {
+        db.ref(`rooms/${roomCode}/players/hider/survivalTime`).set(survivalTimeFormatted);
+      }
       db.ref(`rooms/${roomCode}/gameState/phase`).set('REVIEW');
     }
   });
@@ -291,8 +292,9 @@ function listenSync() {
 
 function renderChallengesList() {
   const container = document.querySelector('.challenges-container');
-  let creationBox = document.getElementById('seeker-challenge-creation');
+  const creationBox = document.getElementById('seeker-challenge-creation');
   
+  // Conserver le bloc de création s'il est présent
   let html = (userRole === 'seeker' && creationBox) ? creationBox.outerHTML : '';
   const keys = Object.keys(activeChallengesList);
 
@@ -320,11 +322,15 @@ function renderChallengesList() {
 
   container.innerHTML = html;
 
+  // Réattacher l'événement du bouton de création si nécessaire
   const newSendBtn = document.getElementById('btn-send-challenge');
   if (newSendBtn) {
     newSendBtn.onclick = () => {
-      const text = document.getElementById('custom-challenge-text').value.trim();
-      const pts = parseInt(document.getElementById('custom-challenge-pts').value) || 20;
+      const textInput = document.getElementById('custom-challenge-text');
+      const ptsInput = document.getElementById('custom-challenge-pts');
+      const text = textInput ? textInput.value.trim() : '';
+      const pts = ptsInput ? parseInt(ptsInput.value) || 20 : 20;
+
       if (!text) return alert("Écris d'abord un défi !");
 
       const challengeId = 'ch_' + Date.now();
@@ -334,7 +340,7 @@ function renderChallengesList() {
         pts: pts,
         endTime: Date.now() + (10 * 60 * 1000)
       });
-      document.getElementById('custom-challenge-text').value = '';
+      if (textInput) textInput.value = '';
     };
   }
 }
@@ -410,8 +416,10 @@ function openReviewScreen() {
 
 window.reviewPhoto = function(photoKey, accept, pts) {
   if (accept) {
-    playerScore += pts;
-    db.ref(`rooms/${roomCode}/players/${userRole}/score`).set(playerScore);
+    // Ajouter les points directement au score du caché dans Firebase
+    db.ref(`rooms/${roomCode}/players/hider/score`).transaction((currentScore) => {
+      return (currentScore || 0) + pts;
+    });
   }
   db.ref(`rooms/${roomCode}/submittedPhotos/${photoKey}`).remove();
   openReviewScreen();
@@ -446,7 +454,7 @@ function displayPodium() {
         <div class="podium-item ${rankClass}">
           <div>
             <span>${medal}</span>
-            <b>${p.name}</b> (${p.role === 'hider' ? '🥷' : '🕵️'})
+            <b>${p.name}</b> (${p.role === 'hider' ? '🥷 Caché' : '🕵️ Chercheur'})
             ${survivalInfo}
           </div>
           <b>${p.score || 0} pts</b>
@@ -458,7 +466,7 @@ function displayPodium() {
   });
 }
 
-// MANCHE SUIVANTE ET REINITIALISATION TOTALE DES STATUTS
+// MANCHE SUIVANTE ET REINITIALISATION TOTALE
 document.getElementById('btn-swap-roles').addEventListener('click', () => {
   userRole = userRole === 'hider' ? 'seeker' : 'hider';
   updateRoleUI();
@@ -474,7 +482,7 @@ document.getElementById('btn-swap-roles').addEventListener('click', () => {
     seekerCircle = null;
   }
 
-  // Nettoyage complet des données de la manche précédente dans Firebase
+  // Nettoyage complet dans Firebase
   db.ref(`rooms/${roomCode}/challenges`).remove();
   db.ref(`rooms/${roomCode}/circle`).remove();
   db.ref(`rooms/${roomCode}/roundStatus`).remove();
@@ -514,9 +522,11 @@ function gameLoop() {
       const s = String(totalSec % 60).padStart(2, '0');
 
       document.getElementById('timer-display').innerText = `${m}:${s}`;
-      document.getElementById('status-text').innerText = userRole === 'hider' 
-        ? "Cache-toi vite !" 
-        : `Cachette en cours... Zone active dans ${m}:${s}`;
+      if (userRole === 'hider') {
+        document.getElementById('status-text').innerText = `Cache-toi vite ! Zone active dans ${m}:${s}`;
+      } else {
+        document.getElementById('status-text').innerText = `Le caché se positionne... Zone active dans ${m}:${s}`;
+      }
     } 
     // 2. PHASE DE CHASSE
     else {
@@ -529,55 +539,55 @@ function gameLoop() {
         updateCircleRadiusInDb();
       }
 
-      // GESTION CÔTÉ CHERCHEUR (AFFICHAGE DES MINUTES ET PÉNALITÉS)
-      if (userRole === 'seeker' && userPos && circleCenter) {
-        const dist = getDistanceInMeters(userPos[0], userPos[1], circleCenter[0], circleCenter[1]);
-        const isOutside = dist > circleRadius;
-
-        if (isOutside) {
-          if (!outOfCircleStartTime) outOfCircleStartTime = now;
-          const outsideTimeMs = now - outOfCircleStartTime;
-          const outsideSecRemaining = Math.max(0, (5 * 60 * 1000) - outsideTimeMs);
-          const mOut = String(Math.floor(outsideSecRemaining / 60000)).padStart(2, '0');
-          const sOut = String(Math.floor((outsideSecRemaining % 60000) / 1000)).padStart(2, '0');
-
-          document.getElementById('status-text').innerText = `⚠️ HORS ZONE ! Agrandissement (+50m) dans ${mOut}:${sOut}`;
-
-          // Pénalité de 5 min hors zone
-          if (outsideTimeMs >= 5 * 60 * 1000) {
-            circleRadius += 50;
-            outOfCircleStartTime = now; // Reset du timer de pénalité
-            updateCircleRadiusInDb();
-          }
-        } else {
-          outOfCircleStartTime = null;
-
-          // Rétrécissement de 50m toutes les 5 min de chasse
-          const shrinkSteps = Math.floor(elapsedMinutes / 5);
-          const targetRadius = Math.max(50, 300 - (shrinkSteps * 50));
-
-          if (circleRadius > targetRadius) {
-            circleRadius = targetRadius;
-            updateCircleRadiusInDb();
-          }
-
-          const nextShrinkMs = ((shrinkSteps + 1) * 5 * 60 * 1000) - elapsedMs;
-          const nextSec = Math.max(0, Math.floor(nextShrinkMs / 1000));
-          const mNext = String(Math.floor(nextSec / 60)).padStart(2, '0');
-          const sNext = String(nextSec % 60).padStart(2, '0');
-
-          document.getElementById('status-text').innerText = `Reste dans la zone ! Prochain rétrécissement (-50m) dans ${mNext}:${sNext}`;
-        }
-      } else if (userRole === 'hider') {
-        document.getElementById('status-text').innerText = `La chasse est lancée ! Survis le plus longtemps possible.`;
-      }
-
-      // CHRONOMÈTRE DE SURVIE POUR LE CACHÉ
+      // CHRONOMÈTRE DE SURVIE (Temps écoulé)
       const totalSec = Math.floor(elapsedMs / 1000);
       const m = String(Math.floor(totalSec / 60)).padStart(2, '0');
       const s = String(totalSec % 60).padStart(2, '0');
       survivalTimeFormatted = `${m}:${s}`;
       document.getElementById('timer-display').innerText = survivalTimeFormatted;
+
+      // GESTION STATUTS & PÉNALITÉS PAR RÔLE
+      if (userRole === 'seeker') {
+        if (userPos && circleCenter) {
+          const dist = getDistanceInMeters(userPos[0], userPos[1], circleCenter[0], circleCenter[1]);
+          const isOutside = dist > circleRadius;
+
+          if (isOutside) {
+            if (!outOfCircleStartTime) outOfCircleStartTime = now;
+            const outsideTimeMs = now - outOfCircleStartTime;
+            const outsideSecRemaining = Math.max(0, (5 * 60 * 1000) - outsideTimeMs);
+            const mOut = String(Math.floor(outsideSecRemaining / 60000)).padStart(2, '0');
+            const sOut = String(Math.floor((outsideSecRemaining % 60000) / 1000)).padStart(2, '0');
+
+            document.getElementById('status-text').innerText = `⚠️ HORS ZONE ! Agrandissement (+50m) dans ${mOut}:${sOut}`;
+
+            if (outsideTimeMs >= 5 * 60 * 1000) {
+              circleRadius += 50;
+              outOfCircleStartTime = now;
+              updateCircleRadiusInDb();
+            }
+          } else {
+            outOfCircleStartTime = null;
+
+            const shrinkSteps = Math.floor(elapsedMinutes / 5);
+            const targetRadius = Math.max(50, 300 - (shrinkSteps * 50));
+
+            if (circleRadius > targetRadius) {
+              circleRadius = targetRadius;
+              updateCircleRadiusInDb();
+            }
+
+            const nextShrinkMs = ((shrinkSteps + 1) * 5 * 60 * 1000) - elapsedMs;
+            const nextSec = Math.max(0, Math.floor(nextShrinkMs / 1000));
+            const mNext = String(Math.floor(nextSec / 60)).padStart(2, '0');
+            const sNext = String(nextSec % 60).padStart(2, '0');
+
+            document.getElementById('status-text').innerText = `Reste dans le cercle ! Rétrécissement (-50m) dans ${mNext}:${sNext}`;
+          }
+        }
+      } else if (userRole === 'hider') {
+        document.getElementById('status-text').innerText = `La chasse est lancée ! Survis le plus longtemps possible. (Zone : ${circleRadius}m)`;
+      }
     }
   }
 
