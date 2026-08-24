@@ -8,7 +8,6 @@ const firebaseConfig = {
   appId: "1:809078029731:web:83e384a38ce01254016e16"
 };
 
-
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 
@@ -22,7 +21,7 @@ let userPos = null;
 let seekerColor = "#ef4444";
 
 let circleCenter = null;
-let circleRadius = 400;
+let circleRadius = 400; // Rayon initial à 400 mètres
 
 let playerScore = 0;
 let activeChallengesList = {};
@@ -31,7 +30,9 @@ let hidingDurationMinutes = 5;
 let isHidingPhaseOver = false;
 
 let survivalTimeFormatted = "00:00";
+let outOfCircleStartTime = null;
 
+// CALCUL DE DISTANCE EN MÈTRES (HAVERSINE)
 function getDistanceInMeters(lat1, lon1, lat2, lon2) {
   const R = 6371000;
   const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -43,6 +44,7 @@ function getDistanceInMeters(lat1, lon1, lat2, lon2) {
   return R * c;
 }
 
+// SELECTION DU PROFIL ET RÔLE
 document.querySelectorAll('.color-btn').forEach(btn => {
   btn.addEventListener('click', (e) => {
     document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('selected'));
@@ -59,6 +61,7 @@ function updateRoleUI() {
   document.getElementById('btn-role-seeker').classList.toggle('selected', userRole === 'seeker');
 }
 
+// NAVIGATION ONGLETS
 document.querySelectorAll('.nav-tab').forEach(tab => {
   tab.addEventListener('click', (e) => {
     document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
@@ -84,6 +87,7 @@ document.querySelectorAll('.nav-tab').forEach(tab => {
   });
 });
 
+// REJOINDRE OU CRÉER SALON
 document.getElementById('btn-create-room').addEventListener('click', () => {
   if (!userRole) return alert("Choisis ton rôle !");
   playerName = document.getElementById('player-name-input').value.trim() || "Joueur";
@@ -448,21 +452,21 @@ function displayPodium() {
   });
 }
 
-// LEMENT POUR RECOMMENCER ET REINITIALISER
+// MANCHE SUIVANTE ET REINITIALISATION
 document.getElementById('btn-swap-roles').addEventListener('click', () => {
   userRole = userRole === 'hider' ? 'seeker' : 'hider';
   updateRoleUI();
 
-  // Reinitialisation des variables de manche
   circleCenter = null;
   circleRadius = 400;
   activeChallengesList = {};
+  outOfCircleStartTime = null;
+
   if (seekerCircle && map) {
     map.removeLayer(seekerCircle);
     seekerCircle = null;
   }
 
-  // Nettoyage de la base de donnees Firebase pour la manche
   db.ref(`rooms/${roomCode}/challenges`).remove();
   db.ref(`rooms/${roomCode}/circle`).remove();
   db.ref(`rooms/${roomCode}/roundStatus`).remove();
@@ -484,6 +488,7 @@ document.getElementById('btn-leave-room').addEventListener('click', () => {
   location.reload();
 });
 
+// BOUCLE PRINCIPALE DU JEU
 function gameLoop() {
   const now = Date.now();
 
@@ -492,38 +497,83 @@ function gameLoop() {
     const hideEndTime = gameStartTime + hideDurationMs;
     const remainingMs = hideEndTime - now;
 
+    // 1. DÉCOMPTE CACHETTE (5 min)
     if (remainingMs > 0) {
       isHidingPhaseOver = false;
+      circleRadius = 400;
       const totalSec = Math.floor(remainingMs / 1000);
       const m = String(Math.floor(totalSec / 60)).padStart(2, '0');
       const s = String(totalSec % 60).padStart(2, '0');
+
       document.getElementById('timer-display').innerText = `${m}:${s}`;
       document.getElementById('status-text').innerText = userRole === 'hider' 
         ? "Cache-toi vite !" 
-        : "Reste dans la zone 5 min (rétrécissement à venir)";
-    } else {
+        : "Reste dans la zone (rétrécissement à 300m dans 5 min)";
+    } 
+    // 2. CHASSE & GESTION DYNAMIQUE DU CERCLE
+    else {
+      const elapsedMs = now - hideEndTime;
+      const elapsedMinutes = Math.floor(elapsedMs / (60 * 1000));
+
       if (!isHidingPhaseOver) {
         isHidingPhaseOver = true;
-        circleRadius = 200; 
-        if (userRole === 'seeker' && circleCenter) {
-          db.ref(`rooms/${roomCode}/circle/radius`).set(circleRadius);
-        }
-        if (userRole === 'hider' && circleCenter) {
-          renderCircle(circleCenter[0], circleCenter[1], circleRadius);
-        }
+        circleRadius = 300; // Passage initial à 300m
+        updateCircleRadiusInDb();
       }
 
-      document.getElementById('status-text').innerText = "La chasse est lancée ! 🏃";
-      const elapsedMs = now - hideEndTime;
+      // CONTROLE POSITION CHERCHEUR
+      if (userRole === 'seeker' && userPos && circleCenter) {
+        const dist = getDistanceInMeters(userPos[0], userPos[1], circleCenter[0], circleCenter[1]);
+        const isOutside = dist > circleRadius;
+
+        if (isOutside) {
+          if (!outOfCircleStartTime) outOfCircleStartTime = now;
+          const outsideTimeMs = now - outOfCircleStartTime;
+          const outsideSecRemaining = Math.max(0, 300 - Math.floor(outsideTimeMs / 1000));
+          const mOut = String(Math.floor(outsideSecRemaining / 60)).padStart(2, '0');
+          const sOut = String(outsideSecRemaining % 60).padStart(2, '0');
+
+          document.getElementById('status-text').innerText = `⚠️ Rentre dans le cercle ! Agrandissement (+50m) dans ${mOut}:${sOut}`;
+
+          // Pénalité 5 min hors zone = +50m
+          if (outsideTimeMs >= 5 * 60 * 1000) {
+            circleRadius += 50;
+            outOfCircleStartTime = now;
+            updateCircleRadiusInDb();
+          }
+        } else {
+          outOfCircleStartTime = null;
+
+          // Rétrécissement de 50m toutes les 5 min
+          const shrinkSteps = Math.floor(elapsedMinutes / 5);
+          const targetRadius = Math.max(50, 300 - (shrinkSteps * 50));
+
+          if (circleRadius > targetRadius) {
+            circleRadius = targetRadius;
+            updateCircleRadiusInDb();
+          }
+
+          const nextShrinkMs = ((shrinkSteps + 1) * 5 * 60 * 1000) - elapsedMs;
+          const nextSec = Math.max(0, Math.floor(nextShrinkMs / 1000));
+          const mNext = String(Math.floor(nextSec / 60)).padStart(2, '0');
+          const sNext = String(nextSec % 60).padStart(2, '0');
+
+          document.getElementById('status-text').innerText = `Reste dans la zone ! Prochain rétrécissement (-50m) dans ${mNext}:${sNext}`;
+        }
+      } else if (userRole === 'hider') {
+        document.getElementById('status-text').innerText = `La chasse est lancée ! Zone actuelle : ${circleRadius}m`;
+      }
+
+      // TEMPS DE SURVIE DU CACHÉ
       const totalSec = Math.floor(elapsedMs / 1000);
       const m = String(Math.floor(totalSec / 60)).padStart(2, '0');
       const s = String(totalSec % 60).padStart(2, '0');
-      
       survivalTimeFormatted = `${m}:${s}`;
       document.getElementById('timer-display').innerText = survivalTimeFormatted;
     }
   }
 
+  // CHRONOS DÉFIS (10 MIN)
   for (let id in activeChallengesList) {
     const ch = activeChallengesList[id];
     const rem = Math.floor((ch.endTime - now) / 1000);
@@ -536,10 +586,16 @@ function gameLoop() {
       const timerElem = document.getElementById(`timer-${id}`);
       if (timerElem) {
         const m = String(Math.floor(rem / 60)).padStart(2, '0');
-        const s = String(totalSec % 60).padStart(2, '0');
+        const s = String(rem % 60).padStart(2, '0');
         timerElem.innerText = `${m}:${s}`;
       }
     }
+  }
+}
+
+function updateCircleRadiusInDb() {
+  if (userRole === 'seeker' && roomCode) {
+    db.ref(`rooms/${roomCode}/circle/radius`).set(circleRadius);
   }
 }
 
