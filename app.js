@@ -513,7 +513,7 @@ function gameLoop() {
     const hideEndTime = gameStartTime + hideDurationMs;
     const remainingMs = hideEndTime - now;
 
-    // 1. PHASE DE CACHETTE
+    // 1. PHASE DE CACHETTE (Textes inversés à l'affichage)
     if (remainingMs > 0) {
       isHidingPhaseOver = false;
       circleRadius = 400;
@@ -522,13 +522,15 @@ function gameLoop() {
       const s = String(totalSec % 60).padStart(2, '0');
 
       document.getElementById('timer-display').innerText = `${m}:${s}`;
+      
+      // Inversion de l'affichage pour correspondre à l'écran
       if (userRole === 'hider') {
-        document.getElementById('status-text').innerText = `Cache-toi vite ! Zone active dans ${m}:${s}`;
-      } else {
         document.getElementById('status-text').innerText = `Le caché se positionne... Zone active dans ${m}:${s}`;
+      } else {
+        document.getElementById('status-text').innerText = `Cache-toi vite ! Zone active dans ${m}:${s}`;
       }
     } 
-    // 2. PHASE DE CHASSE
+    // 2. PHASE DE CHASSE (Consignes inversées à l'affichage)
     else {
       const elapsedMs = now - hideEndTime;
       const elapsedMinutes = Math.floor(elapsedMs / (60 * 1000));
@@ -546,8 +548,12 @@ function gameLoop() {
       survivalTimeFormatted = `${m}:${s}`;
       document.getElementById('timer-display').innerText = survivalTimeFormatted;
 
-      // GESTION STATUTS & PÉNALITÉS PAR RÔLE
+      // GESTION STATUTS & PÉNALITÉS PAR RÔLE (Affichages permutés)
       if (userRole === 'seeker') {
+        // Affiche la consigne de survie au chercheur
+        document.getElementById('status-text').innerText = `La chasse est lancée ! Survis le plus longtemps possible. (Zone : ${circleRadius}m)`;
+      } else if (userRole === 'hider') {
+        // Affiche la consigne de zone au caché
         if (userPos && circleCenter) {
           const dist = getDistanceInMeters(userPos[0], userPos[1], circleCenter[0], circleCenter[1]);
           const isOutside = dist > circleRadius;
@@ -585,8 +591,6 @@ function gameLoop() {
             document.getElementById('status-text').innerText = `Reste dans le cercle ! Rétrécissement (-50m) dans ${mNext}:${sNext}`;
           }
         }
-      } else if (userRole === 'hider') {
-        document.getElementById('status-text').innerText = `La chasse est lancée ! Survis le plus longtemps possible. (Zone : ${circleRadius}m)`;
       }
     }
   }
