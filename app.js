@@ -52,13 +52,12 @@ document.querySelectorAll('.color-btn').forEach(btn => {
     userColor = e.target.dataset.color;
   });
 });
-
 document.getElementById('btn-role-hider').addEventListener('click', () => { userRole = 'seeker'; updateRoleUI(); });
 document.getElementById('btn-role-seeker').addEventListener('click', () => { userRole = 'hider'; updateRoleUI(); });
 
 function updateRoleUI() {
-  document.getElementById('btn-role-hider').classList.toggle('selected', userRole === 'hider');
-  document.getElementById('btn-role-seeker').classList.toggle('selected', userRole === 'seeker');
+  document.getElementById('btn-role-hider').classList.toggle('selected', userRole === 'seeker');
+  document.getElementById('btn-role-seeker').classList.toggle('selected', userRole === 'hider');
 }
 
 // NAVIGATION ONGLETS
