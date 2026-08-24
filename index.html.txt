@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Cache-Cache GPS - Port aux Cerises</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <div id="lobby-screen" class="lobby-container">
+    <h2>🎯 Cache-Cache GPS</h2>
+    <p class="subtitle">Match en 2 Manches - Port aux Cerises</p>
+
+    <div class="lobby-box">
+      <h3>1. Profil & Couleur</h3>
+      <input type="text" id="player-name-input" placeholder="Ton pseudo" maxlength="15">
+      
+      <div class="color-picker-container">
+        <label>Couleur du repère :</label>
+        <div class="color-options">
+          <button class="color-btn selected" data-color="#38bdf8" style="background:#38bdf8;"></button>
+          <button class="color-btn" data-color="#ef4444" style="background:#ef4444;"></button>
+          <button class="color-btn" data-color="#22c55e" style="background:#22c55e;"></button>
+          <button class="color-btn" data-color="#a855f7" style="background:#a855f7;"></button>
+          <button class="color-btn" data-color="#eab308" style="background:#eab308;"></button>
+        </div>
+      </div>
+
+      <hr class="divider">
+
+      <h3>2. Choisis ton rôle initial</h3>
+      <div class="role-select">
+        <button id="btn-role-hider" class="btn-role">🥷 Se cacher (Manche 1)</button>
+        <button id="btn-role-seeker" class="btn-role">🕵️ Chercher (Manche 1)</button>
+      </div>
+
+      <hr class="divider">
+
+      <h3>3. Salon</h3>
+      <div class="code-actions">
+        <button id="btn-create-room" class="btn-primary">🎲 Créer un salon</button>
+        <div class="join-box">
+          <input type="number" id="room-code-input" placeholder="Code (4 digits)">
+          <button id="btn-join-room" class="btn-secondary">Rejoindre</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="waiting-room-screen" class="lobby-container" style="display: none;">
+    <h2>⏳ Salon : <span id="waiting-room-code">----</span></h2>
+    <div class="lobby-box text-center">
+      <div id="players-status-list" class="players-list">En attente des joueurs...</div>
+      <button id="btn-ready" class="btn-primary" style="margin-top: 16px;">✅ Je suis Prêt !</button>
+    </div>
+  </div>
+
+  <div id="app-container" class="status-none" style="display: none;">
+    <div id="vignette-overlay"></div>
+
+    <header id="status-bar">
+      <div id="status-info">
+        <div id="round-indicator">Manche 1/2</div>
+        <div id="status-text">Initialisation...</div>
+      </div>
+      <div id="timer-display">00:00</div>
+    </header>
+
+    <nav id="nav-tabs">
+      <button class="nav-tab active" data-tab="tab-map">🗺️ Carte</button>
+      <button class="nav-tab" data-tab="tab-challenges">
+        🎯 Défis
+        <span id="challenge-badge" class="badge" style="display:none;">!</span>
+      </button>
+    </nav>
+
+    <main id="main-content">
+      
+      <div id="tab-map" class="tab-page active">
+        <div id="map"></div>
+        <button id="btn-recenter" class="map-btn">🎯 Recentrer</button>
+        
+        <div id="map-notification" class="map-notif" style="display: none;">
+          🔔 Nouveau défi disponible dans l'onglet Défis !
+        </div>
+      </div>
+
+      <div id="tab-challenges" class="tab-page">
+        <div class="challenges-container">
+          
+          <div id="seeker-challenge-creation" class="challenge-card" style="display:none;">
+            <h3>✍️ Proposer un défi au caché</h3>
+            <input type="text" id="custom-challenge-text" placeholder="Ex: Prends en photo une fleur rouge" maxlength="80">
+            <div class="pts-picker">
+              <label>Points attribués :</label>
+              <input type="number" id="custom-challenge-pts" value="20" min="5" max="100" step="5">
+            </div>
+            <button id="btn-send-challenge" class="btn-primary">🚀 Envoyer le défi</button>
+          </div>
+
+          <div class="challenge-card">
+            <h3>📋 Défi en cours (Temps restant : <span id="challenge-timer">10:00</span>)</h3>
+            <p id="active-challenge-desc" class="challenge-text">Aucun défi actif pour le moment.</p>
+            <p id="active-challenge-pts" class="challenge-reward"></p>
+            
+            <input type="file" id="challenge-photo-input" accept="image/*" capture="environment" style="display:none;">
+            <button id="btn-take-challenge-photo" class="btn-success" style="display:none;">📷 Prendre la photo pour valider</button>
+            <p id="photo-submitted-status" style="display:none; color: #22c55e; font-weight: bold; margin-top: 10px;">📸 Photo envoyée ! En attente de validation à la fin de la partie.</p>
+          </div>
+
+        </div>
+      </div>
+
+    </main>
+
+    <footer id="bottom-bar">
+      <div id="game-controls">
+        <button id="btn-found-seeker" class="btn-danger" style="display:none;">🎯 J'ai trouvé le caché !</button>
+        <button id="btn-confirm-hider" class="btn-warning" style="display:none;">🤝 Je confirme m'être fait trouver</button>
+      </div>
+      <div id="score-board">
+        <span>Score actuel : <b id="player-score">0 pts</b></span>
+      </div>
+    </footer>
+  </div>
+
+  <div id="review-screen" class="lobby-container" style="display: none;">
+    <h2>🔍 Validation des Défis</h2>
+    <div class="lobby-box">
+      <p class="subtitle">Le chercheur doit vérifier les preuves photos du caché :</p>
+      <div id="photos-review-list">Chargement des photos...</div>
+      <button id="btn-finish-review" class="btn-primary" style="margin-top: 15px;">🏁 Terminer la manche</button>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
