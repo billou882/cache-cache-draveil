@@ -89,7 +89,7 @@ document.querySelectorAll('.nav-tab').forEach(tab => {
 
 // REJOINDRE OU CRÉER SALON
 document.getElementById('btn-create-room').addEventListener('click', () => {
-  if (!userRole) return alert("Choisis ton rôle ahh!");
+  if (!userRole) return alert("Choisis ton rôle !");
   playerName = document.getElementById('player-name-input').value.trim() || "Joueur";
   hidingDurationMinutes = parseInt(document.getElementById('hide-time-input').value) || 5;
   roomCode = Math.floor(1000 + Math.random() * 9000).toString();
