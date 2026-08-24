@@ -59,16 +59,15 @@
   <div id="waiting-room-screen" class="screen" style="display: none;">
     <div class="card text-center">
       <h2>Salon : <span id="waiting-room-code">----</span></h2>
-      <p>En attente des joueurs...</p>
+      <p style="color:#64748b; margin-bottom: 14px;">En attente des joueurs...</p>
       <div id="players-status-list" class="status-list"></div>
-      <button id="btn-ready" class="btn-primary">Je suis prêt !</button>
+      <button id="btn-ready" class="btn-primary" style="margin-top: 15px;">Je suis prêt !</button>
     </div>
   </div>
 
-  <!-- APPLICATION PRINCIPALE (CARTE & DÉFIS) -->
+  <!-- APPLICATION PRINCIPALE -->
   <div id="app-container" style="display: none;">
     
-    <!-- EN-TÊTE FIXE -->
     <header class="app-header">
       <div class="timer-box">
         <span class="timer-label">⏱️ TEMPS</span>
@@ -77,7 +76,6 @@
       <div id="status-text" class="status-banner">Préparez-vous !</div>
     </header>
 
-    <!-- ONGLETS -->
     <div class="tab-content">
       
       <!-- PAGE CARTE -->
@@ -100,7 +98,6 @@
       <!-- PAGE DÉFIS -->
       <div id="tab-challenges" class="tab-page">
         <div class="challenges-container">
-          
           <div id="seeker-challenge-creation" class="challenge-card" style="display: none;">
             <h3>🎯 Créer un défi pour le caché</h3>
             <input type="text" id="custom-challenge-text" placeholder="Ex: Prends une photo d'un banc rouge...">
@@ -109,14 +106,12 @@
               <button id="btn-send-challenge" class="btn-primary" style="flex: 1;">Lancer le défi (10 min)</button>
             </div>
           </div>
-
         </div>
       </div>
     </div>
 
     <input type="file" id="challenge-photo-input" accept="image/*" capture="camera" style="display: none;">
 
-    <!-- BARRE DE NAVIGATION -->
     <nav class="bottom-nav">
       <button class="nav-tab active" data-tab="tab-map">🗺️ Carte</button>
       <button class="nav-tab" data-tab="tab-challenges">
@@ -125,7 +120,7 @@
     </nav>
   </div>
 
-  <!-- ÉCRAN DE VALIDATION DE FIN DE MANCHE -->
+  <!-- ÉCRAN VALIDATION -->
   <div id="review-screen" class="screen" style="display: none;">
     <div class="card">
       <h2>📷 Validation des défis</h2>
