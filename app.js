@@ -124,7 +124,7 @@ function enterWaitingRoom() {
     for (let r in p) {
       if (p[r].ready) readyCount++;
       if (r === 'seeker') seekerColor = p[r].color || "#ef4444";
-      html += `<div><b>${p[r].name}</b> (${r === 'hider' ? '🥷 Caché' : '🕵️ Chercheur'}) - ${p[r].ready ? '✅ Prêt' : '⏳ En attente'}</div>`;
+      html += `<div style="padding: 6px 0; border-bottom: 1px solid #f1f5f9;"><b>${p[r].name}</b> (${r === 'hider' ? '🥷 Caché' : '🕵️ Chercheur'}) - ${p[r].ready ? '✅ Prêt' : '⏳ En attente'}</div>`;
     }
     document.getElementById('players-status-list').innerHTML = html;
 
@@ -191,13 +191,20 @@ function startGps() {
 
     if (userRole === 'seeker') {
       if (!circleCenter) {
-        circleCenter = userPos;
+        // Génération aléatoire initiale autour du chercheur (décalage de ~50 à 100m)
+        const randomAngle = Math.random() * 2 * Math.PI;
+        const randomDist = 60 + Math.random() * 60; 
+        const initLat = userPos[0] + (randomDist / 111320) * Math.cos(randomAngle);
+        const initLng = userPos[1] + (randomDist / (111320 * Math.cos(userPos[0] * Math.PI / 180))) * Math.sin(randomAngle);
+        
+        circleCenter = [initLat, initLng];
         db.ref(`rooms/${roomCode}/circle`).set({ 
           lat: circleCenter[0], 
           lng: circleCenter[1], 
           radius: circleRadius 
         });
       } else {
+        // Effet de glissement si le chercheur s'approche du bord (touche le cercle)
         const dist = getDistanceInMeters(userPos[0], userPos[1], circleCenter[0], circleCenter[1]);
         if (dist >= circleRadius) {
           const angle = Math.atan2(userPos[1] - circleCenter[1], userPos[0] - circleCenter[0]);
@@ -221,8 +228,8 @@ function updateMarker() {
   const icon = L.divIcon({
     className: 'custom-dot-container',
     html: `<div class="user-location-dot" style="--dot-color: ${userColor};"></div>`,
-    iconSize: [16, 16],
-    iconAnchor: [8, 8]
+    iconSize: [18, 18],
+    iconAnchor: [9, 9]
   });
 
   if (!userMarker) userMarker = L.marker(userPos, { icon }).addTo(map);
@@ -386,15 +393,15 @@ function openReviewScreen() {
     for (let key in photos) {
       const p = photos[key];
       html += `
-        <div class="review-card">
+        <div class="challenge-card" style="margin-bottom:10px;">
           <p><b>${p.challengeText}</b> (${p.pts} pts)</p>
           <img src="${p.photo}" style="width:100%; border-radius:8px; margin:8px 0;">
           ${userRole === 'seeker' ? `
-            <div class="review-actions">
+            <div style="display:flex; gap:8px;">
               <button onclick="reviewPhoto('${key}', true, ${p.pts})" class="btn-success">✅ Valider (+${p.pts} pts)</button>
               <button onclick="reviewPhoto('${key}', false, 0)" class="btn-danger">❌ Refuser</button>
             </div>
-          ` : `<p>En attente de validation du chercheur...</p>`}
+          ` : `<p style="font-size:0.85rem; color:#64748b;">En attente de validation du chercheur...</p>`}
         </div>
       `;
     }
@@ -434,16 +441,16 @@ function displayPodium() {
     playersList.forEach((p, index) => {
       const medal = index === 0 ? '🥇' : '🥈';
       const rankClass = index === 0 ? 'first' : 'second';
-      const survivalInfo = p.role === 'hider' && p.survivalTime ? ` — Temps de survie : ⏱️ <b>${p.survivalTime}</b>` : '';
+      const survivalInfo = p.role === 'hider' && p.survivalTime ? ` — ⏱️ <b>${p.survivalTime}</b>` : '';
 
       podiumHtml += `
         <div class="podium-item ${rankClass}">
           <div>
-            <span class="podium-rank">${medal}</span>
-            <span class="podium-name">${p.name} (${p.role === 'hider' ? '🥷 Caché' : '🕵️ Chercheur'})</span>
+            <span>${medal}</span>
+            <b>${p.name}</b> (${p.role === 'hider' ? '🥷' : '🕵️'})
             ${survivalInfo}
           </div>
-          <span class="podium-score">${p.score || 0} pts</span>
+          <b>${p.score || 0} pts</b>
         </div>
       `;
     });
@@ -452,7 +459,7 @@ function displayPodium() {
   });
 }
 
-// MANCHE SUIVANTE ET REINITIALISATION
+// MANCHE SUIVANTE ET REINITIALISATION TOTALE DES STATUTS
 document.getElementById('btn-swap-roles').addEventListener('click', () => {
   userRole = userRole === 'hider' ? 'seeker' : 'hider';
   updateRoleUI();
@@ -461,12 +468,14 @@ document.getElementById('btn-swap-roles').addEventListener('click', () => {
   circleRadius = 400;
   activeChallengesList = {};
   outOfCircleStartTime = null;
+  isHidingPhaseOver = false;
 
   if (seekerCircle && map) {
     map.removeLayer(seekerCircle);
     seekerCircle = null;
   }
 
+  // Nettoyage complet des données de la manche précédente dans Firebase
   db.ref(`rooms/${roomCode}/challenges`).remove();
   db.ref(`rooms/${roomCode}/circle`).remove();
   db.ref(`rooms/${roomCode}/roundStatus`).remove();
@@ -497,7 +506,7 @@ function gameLoop() {
     const hideEndTime = gameStartTime + hideDurationMs;
     const remainingMs = hideEndTime - now;
 
-    // 1. DÉCOMPTE CACHETTE (5 min)
+    // 1. PHASE DE CACHETTE
     if (remainingMs > 0) {
       isHidingPhaseOver = false;
       circleRadius = 400;
@@ -508,20 +517,20 @@ function gameLoop() {
       document.getElementById('timer-display').innerText = `${m}:${s}`;
       document.getElementById('status-text').innerText = userRole === 'hider' 
         ? "Cache-toi vite !" 
-        : "Reste dans la zone (rétrécissement à 300m dans 5 min)";
+        : `Cachette en cours... Zone active dans ${m}:${s}`;
     } 
-    // 2. CHASSE & GESTION DYNAMIQUE DU CERCLE
+    // 2. PHASE DE CHASSE
     else {
       const elapsedMs = now - hideEndTime;
       const elapsedMinutes = Math.floor(elapsedMs / (60 * 1000));
 
       if (!isHidingPhaseOver) {
         isHidingPhaseOver = true;
-        circleRadius = 300; // Passage initial à 300m
+        circleRadius = 300; 
         updateCircleRadiusInDb();
       }
 
-      // CONTROLE POSITION CHERCHEUR
+      // GESTION CÔTÉ CHERCHEUR (AFFICHAGE DES MINUTES ET PÉNALITÉS)
       if (userRole === 'seeker' && userPos && circleCenter) {
         const dist = getDistanceInMeters(userPos[0], userPos[1], circleCenter[0], circleCenter[1]);
         const isOutside = dist > circleRadius;
@@ -529,22 +538,22 @@ function gameLoop() {
         if (isOutside) {
           if (!outOfCircleStartTime) outOfCircleStartTime = now;
           const outsideTimeMs = now - outOfCircleStartTime;
-          const outsideSecRemaining = Math.max(0, 300 - Math.floor(outsideTimeMs / 1000));
-          const mOut = String(Math.floor(outsideSecRemaining / 60)).padStart(2, '0');
-          const sOut = String(outsideSecRemaining % 60).padStart(2, '0');
+          const outsideSecRemaining = Math.max(0, (5 * 60 * 1000) - outsideTimeMs);
+          const mOut = String(Math.floor(outsideSecRemaining / 60000)).padStart(2, '0');
+          const sOut = String(Math.floor((outsideSecRemaining % 60000) / 1000)).padStart(2, '0');
 
-          document.getElementById('status-text').innerText = `⚠️ Rentre dans le cercle ! Agrandissement (+50m) dans ${mOut}:${sOut}`;
+          document.getElementById('status-text').innerText = `⚠️ HORS ZONE ! Agrandissement (+50m) dans ${mOut}:${sOut}`;
 
-          // Pénalité 5 min hors zone = +50m
+          // Pénalité de 5 min hors zone
           if (outsideTimeMs >= 5 * 60 * 1000) {
             circleRadius += 50;
-            outOfCircleStartTime = now;
+            outOfCircleStartTime = now; // Reset du timer de pénalité
             updateCircleRadiusInDb();
           }
         } else {
           outOfCircleStartTime = null;
 
-          // Rétrécissement de 50m toutes les 5 min
+          // Rétrécissement de 50m toutes les 5 min de chasse
           const shrinkSteps = Math.floor(elapsedMinutes / 5);
           const targetRadius = Math.max(50, 300 - (shrinkSteps * 50));
 
@@ -561,10 +570,10 @@ function gameLoop() {
           document.getElementById('status-text').innerText = `Reste dans la zone ! Prochain rétrécissement (-50m) dans ${mNext}:${sNext}`;
         }
       } else if (userRole === 'hider') {
-        document.getElementById('status-text').innerText = `La chasse est lancée ! Zone actuelle : ${circleRadius}m`;
+        document.getElementById('status-text').innerText = `La chasse est lancée ! Survis le plus longtemps possible.`;
       }
 
-      // TEMPS DE SURVIE DU CACHÉ
+      // CHRONOMÈTRE DE SURVIE POUR LE CACHÉ
       const totalSec = Math.floor(elapsedMs / 1000);
       const m = String(Math.floor(totalSec / 60)).padStart(2, '0');
       const s = String(totalSec % 60).padStart(2, '0');
