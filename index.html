@@ -5,162 +5,150 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Cache-Cache GPS</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-  <div id="lobby-screen" class="lobby-container">
-    <div class="lobby-card">
-      <div class="brand">
-        <span class="brand-icon">🎯</span>
-        <h2>Cache-Cache GPS</h2>
-      </div>
-
+  <!-- ÉCRAN ACCUEIL / LOBBY -->
+  <div id="lobby-screen" class="screen">
+    <div class="card">
+      <h2>🥷 Cache-Cache GPS</h2>
       <div class="form-group">
-        <label>1. Ton Pseudo</label>
-        <input type="text" id="player-name-input" placeholder="Entre ton pseudo" maxlength="15">
+        <label>Ton prénom :</label>
+        <input type="text" id="player-name-input" placeholder="Ex: Lucas">
       </div>
       
       <div class="form-group">
-        <label>Couleur du repère :</label>
-        <div class="color-options">
+        <label>Couleur de ton repère :</label>
+        <div class="color-picker">
           <button class="color-btn selected" data-color="#38bdf8" style="background:#38bdf8;"></button>
-          <button class="color-btn" data-color="#ef4444" style="background:#ef4444;"></button>
-          <button class="color-btn" data-color="#22c55e" style="background:#22c55e;"></button>
           <button class="color-btn" data-color="#a855f7" style="background:#a855f7;"></button>
-          <button class="color-btn" data-color="#eab308" style="background:#eab308;"></button>
+          <button class="color-btn" data-color="#f59e0b" style="background:#f59e0b;"></button>
+          <button class="color-btn" data-color="#10b981" style="background:#10b981;"></button>
+          <button class="color-btn" data-color="#ec4899" style="background:#ec4899;"></button>
         </div>
       </div>
-
-      <hr class="divider">
 
       <div class="form-group">
-        <label>2. Rôle & Temps de cachette</label>
-        <div class="role-select">
-          <button id="btn-role-hider" class="btn-role">🥷 Se cacher</button>
-          <button id="btn-role-seeker" class="btn-role">🕵️ Chercher</button>
-        </div>
-        <div class="select-box" style="margin-top: 10px;">
-          <span>Temps accordé :</span>
-          <select id="hide-time-input">
-            <option value="2">2 minutes</option>
-            <option value="5" selected>5 minutes</option>
-            <option value="10">10 minutes</option>
-          </select>
+        <label>Rôle pour cette manche :</label>
+        <div class="role-selector">
+          <button id="btn-role-hider" class="btn-role">🥷 Caché</button>
+          <button id="btn-role-seeker" class="btn-role">🕵️ Chercheur</button>
         </div>
       </div>
 
-      <hr class="divider">
+      <hr>
 
       <div class="form-group">
-        <label>3. Salon de jeu</label>
-        <button id="btn-create-room" class="btn-primary">🎲 Créer un salon</button>
-        <div class="join-box">
-          <input type="number" id="room-code-input" placeholder="Code (4 chiffres)">
-          <button id="btn-join-room" class="btn-secondary">Rejoindre</button>
-        </div>
+        <label>Temps de cachette (min) :</label>
+        <input type="number" id="hide-time-input" value="5" min="1">
       </div>
+
+      <button id="btn-create-room" class="btn-primary">Créer une partie</button>
+      
+      <div class="or-divider">OU</div>
+
+      <div class="form-group">
+        <input type="text" id="room-code-input" placeholder="Code du salon (ex: 1234)">
+      </div>
+      <button id="btn-join-room" class="btn-secondary">Rejoindre une partie</button>
     </div>
   </div>
 
-  <div id="waiting-room-screen" class="lobby-container" style="display: none;">
-    <div class="lobby-card text-center">
-      <h2>⏳ Salon : <span id="waiting-room-code" class="highlight">----</span></h2>
-      <div id="players-status-list" class="players-list">En attente des joueurs...</div>
-      <button id="btn-ready" class="btn-primary" style="margin-top: 20px;">✅ Je suis Prêt !</button>
+  <!-- SALLE D'ATTENTE -->
+  <div id="waiting-room-screen" class="screen" style="display: none;">
+    <div class="card text-center">
+      <h2>Salon : <span id="waiting-room-code">----</span></h2>
+      <p>En attente des joueurs...</p>
+      <div id="players-status-list" class="status-list"></div>
+      <button id="btn-ready" class="btn-primary">Je suis prêt !</button>
     </div>
   </div>
 
-  <div id="app-container" class="status-none" style="display: none;">
-    <div id="vignette-overlay"></div>
-
-    <header id="status-bar">
-      <div id="status-info">
-        <div id="round-indicator">MANCHE 1</div>
-        <div id="status-text">Initialisation...</div>
+  <!-- APPLICATION PRINCIPALE (CARTE & DÉFIS) -->
+  <div id="app-container" style="display: none;">
+    
+    <!-- EN-TÊTE FIXE -->
+    <header class="app-header">
+      <div class="timer-box">
+        <span class="timer-label">⏱️ TEMPS</span>
+        <span id="timer-display" class="timer-value">05:00</span>
       </div>
-      <div id="timer-display">00:00</div>
+      <div id="status-text" class="status-banner">Préparez-vous !</div>
     </header>
 
-    <nav id="nav-tabs">
-      <button class="nav-tab active" data-tab="tab-map">🗺️ Carte</button>
-      <button class="nav-tab" data-tab="tab-challenges">
-        🎯 Défis
-        <span id="challenge-badge" class="badge" style="display:none;">!</span>
-      </button>
-    </nav>
-
-    <main id="main-content">
+    <!-- ONGLETS -->
+    <div class="tab-content">
+      
+      <!-- PAGE CARTE -->
       <div id="tab-map" class="tab-page active">
         <div id="map"></div>
-        <button id="btn-recenter" class="map-btn">🎯 Recentrer</button>
+        <button id="btn-recenter" class="map-btn">🎯 Se recentrer</button>
         
-        <div id="map-notification" class="map-notif" style="display: none;">
-          🔔 Nouveau défi disponible dans l'onglet Défis !
+        <div id="map-notification" class="map-toast" style="display: none;">
+          🎯 Nouveau défi disponible ! Voir onglet Défis.
         </div>
+
+        <button id="btn-found-seeker" class="btn-danger action-map-btn" style="display: none;">
+          🚨 J'ai trouvé le caché !
+        </button>
+        <button id="btn-confirm-hider" class="btn-success action-map-btn" style="display: none;">
+          ✅ Confirmer le marquage
+        </button>
       </div>
 
+      <!-- PAGE DÉFIS -->
       <div id="tab-challenges" class="tab-page">
         <div class="challenges-container">
-          <div id="seeker-challenge-creation" class="challenge-card" style="display:none;">
-            <h3>✍️ Proposer un défi au caché</h3>
-            <input type="text" id="custom-challenge-text" placeholder="Ex: Prends en photo une fleur rouge" maxlength="80">
-            <div class="pts-picker">
-              <label>Points attribués :</label>
-              <input type="number" id="custom-challenge-pts" value="20" min="5" max="100" step="5">
+          
+          <div id="seeker-challenge-creation" class="challenge-card" style="display: none;">
+            <h3>🎯 Créer un défi pour le caché</h3>
+            <input type="text" id="custom-challenge-text" placeholder="Ex: Prends une photo d'un banc rouge...">
+            <div style="display: flex; gap: 8px; margin-top: 8px;">
+              <input type="number" id="custom-challenge-pts" value="20" placeholder="Pts" style="width: 80px;">
+              <button id="btn-send-challenge" class="btn-primary" style="flex: 1;">Lancer le défi (10 min)</button>
             </div>
-            <button id="btn-send-challenge" class="btn-primary">🚀 Envoyer le défi</button>
           </div>
 
-          <div class="challenge-card">
-            <h3>📋 Défi en cours (<span id="challenge-timer">10:00</span>)</h3>
-            <p id="active-challenge-desc" class="challenge-text">Aucun défi actif pour le moment.</p>
-            <p id="active-challenge-pts" class="challenge-reward"></p>
-            
-            <input type="file" id="challenge-photo-input" accept="image/*" capture="environment" style="display:none;">
-            <button id="btn-take-challenge-photo" class="btn-success" style="display:none;">📷 Prendre la photo pour valider</button>
-            <p id="photo-submitted-status" class="status-success" style="display:none;">📸 Photo envoyée ! En attente de validation à la fin.</p>
-          </div>
         </div>
       </div>
-    </main>
+    </div>
 
-    <footer id="bottom-bar">
-      <div id="game-controls">
-        <button id="btn-found-seeker" class="btn-danger" style="display:none;">🎯 J'ai trouvé le caché !</button>
-        <button id="btn-confirm-hider" class="btn-warning" style="display:none;">🤝 Je confirme m'être fait trouver</button>
-      </div>
-      <div id="score-board">
-        <span>Score actuel : <b id="player-score">0 pts</b></span>
-      </div>
-    </footer>
+    <input type="file" id="challenge-photo-input" accept="image/*" capture="camera" style="display: none;">
+
+    <!-- BARRE DE NAVIGATION -->
+    <nav class="bottom-nav">
+      <button class="nav-tab active" data-tab="tab-map">🗺️ Carte</button>
+      <button class="nav-tab" data-tab="tab-challenges">
+        🎯 Défis <span id="challenge-badge" class="badge" style="display: none;">!</span>
+      </button>
+    </nav>
   </div>
 
-  <div id="review-screen" class="lobby-container" style="display: none;">
-    <div class="lobby-card">
-      <h2>🔍 Validation des Défis</h2>
-      <p class="subtitle">Validation des preuves photos :</p>
-      <div id="photos-review-list">Chargement des photos...</div>
-      <button id="btn-finish-review" class="btn-primary" style="margin-top: 15px;">🏆 Voir le Podium</button>
+  <!-- ÉCRAN DE VALIDATION DE FIN DE MANCHE -->
+  <div id="review-screen" class="screen" style="display: none;">
+    <div class="card">
+      <h2>📷 Validation des défis</h2>
+      <div id="photos-review-list"></div>
+      <button id="btn-finish-review" class="btn-primary" style="margin-top: 15px;">Voir le podium 🏆</button>
     </div>
   </div>
 
-  <div id="podium-screen" class="lobby-container" style="display: none;">
-    <div class="lobby-card text-center">
-      <h2>🏆 PODIUM DE LA PARTIE 🏆</h2>
-      <p class="subtitle">Fin de la manche ! Voici les résultats :</p>
-      
-      <div id="podium-display" class="podium-box">
-        </div>
-
-      <button id="btn-swap-roles" class="btn-primary" style="margin-top: 20px;">🔄 Échanger les rôles & Recommencer</button>
-      <button id="btn-leave-room" class="btn-secondary" style="margin-top: 10px; width: 100%; padding: 12px;">🏠 Quitter le salon</button>
+  <!-- ÉCRAN PODIUM -->
+  <div id="podium-screen" class="screen" style="display: none;">
+    <div class="card text-center">
+      <h2>🏆 Fin de la manche</h2>
+      <div id="podium-display" class="podium-container"></div>
+      <div style="display: flex; gap: 10px; margin-top: 20px;">
+        <button id="btn-swap-roles" class="btn-primary" style="flex: 1;">Manche suivante 🔄</button>
+        <button id="btn-leave-room" class="btn-secondary" style="flex: 1;">Quitter 🚪</button>
+      </div>
     </div>
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
