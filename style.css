@@ -9,7 +9,7 @@ body, html {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background-color: #f1f5f9;
+  background-color: #0f172a;
 }
 
 .screen {
@@ -25,15 +25,16 @@ body, html {
 .card {
   background: #ffffff;
   border-radius: 16px;
-  padding: 20px;
+  padding: 24px;
   width: 100%;
   max-width: 400px;
-  box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+  box-shadow: 0 10px 25px rgba(0,0,0,0.4);
 }
 
 .card h2 {
   margin-bottom: 16px;
   color: #0f172a;
+  font-size: 1.4rem;
 }
 
 .form-group {
@@ -51,27 +52,35 @@ body, html {
 
 input[type="text"], input[type="number"] {
   width: 100%;
-  padding: 10px 12px;
+  padding: 12px;
   border: 1px solid #cbd5e1;
   border-radius: 8px;
   font-size: 1rem;
+  outline: none;
+}
+
+input[type="text"]:focus, input[type="number"]:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
 }
 
 .color-picker {
   display: flex;
-  gap: 10px;
+  gap: 12px;
 }
 
 .color-btn {
-  width: 36px;
-  height: 36px;
+  width: 38px;
+  height: 38px;
   border-radius: 50%;
   border: 3px solid transparent;
   cursor: pointer;
+  transition: transform 0.2s;
 }
 
 .color-btn.selected {
   border-color: #0f172a;
+  transform: scale(1.1);
 }
 
 .role-selector {
@@ -81,12 +90,13 @@ input[type="text"], input[type="number"] {
 
 .btn-role {
   flex: 1;
-  padding: 10px;
+  padding: 12px;
   border: 2px solid #cbd5e1;
   background: white;
   border-radius: 8px;
   font-weight: bold;
   cursor: pointer;
+  color: #475569;
 }
 
 .btn-role.selected {
@@ -97,12 +107,13 @@ input[type="text"], input[type="number"] {
 
 .btn-primary, .btn-secondary, .btn-danger, .btn-success {
   width: 100%;
-  padding: 12px;
+  padding: 14px;
   border: none;
-  border-radius: 8px;
+  border-radius: 10px;
   font-weight: bold;
   font-size: 1rem;
   cursor: pointer;
+  box-shadow: 0 4px 6px rgba(0,0,0,0.1);
 }
 
 .btn-primary { background: #3b82f6; color: white; }
@@ -112,9 +123,10 @@ input[type="text"], input[type="number"] {
 
 .or-divider {
   text-align: center;
-  margin: 12px 0;
+  margin: 14px 0;
   color: #94a3b8;
   font-weight: bold;
+  font-size: 0.9rem;
 }
 
 /* APP CONTAINER */
@@ -128,11 +140,12 @@ input[type="text"], input[type="number"] {
 .app-header {
   background: #0f172a;
   color: white;
-  padding: 10px 16px;
+  padding: 12px 16px;
   display: flex;
   align-items: center;
   gap: 12px;
   z-index: 1000;
+  border-bottom: 1px solid #1e293b;
 }
 
 .timer-box {
@@ -142,16 +155,18 @@ input[type="text"], input[type="number"] {
   display: flex;
   flex-direction: column;
   align-items: center;
+  min-width: 75px;
 }
 
-.timer-label { font-size: 0.65rem; color: #94a3b8; font-weight: bold; }
-.timer-value { font-size: 1.2rem; font-weight: bold; color: #38bdf8; }
+.timer-label { font-size: 0.6rem; color: #94a3b8; font-weight: bold; }
+.timer-value { font-size: 1.1rem; font-weight: bold; color: #38bdf8; }
 
 .status-banner {
   font-size: 0.85rem;
   font-weight: 600;
   color: #f1f5f9;
   flex: 1;
+  line-height: 1.2;
 }
 
 .tab-content {
@@ -176,42 +191,44 @@ input[type="text"], input[type="number"] {
 
 .map-btn {
   position: absolute;
-  top: 12px;
-  right: 12px;
+  top: 14px;
+  right: 14px;
   z-index: 1000;
   background: white;
   border: none;
-  padding: 8px 12px;
+  padding: 10px 14px;
   border-radius: 20px;
   font-weight: bold;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  color: #0f172a;
 }
 
 .map-toast {
   position: absolute;
-  top: 12px;
-  left: 12px;
-  right: 60px;
+  top: 14px;
+  left: 14px;
+  right: 80px;
   z-index: 1000;
   background: #3b82f6;
   color: white;
-  padding: 8px 12px;
+  padding: 10px 14px;
   border-radius: 8px;
   font-size: 0.85rem;
   font-weight: bold;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
 }
 
 .action-map-btn {
   position: absolute;
-  bottom: 20px;
+  bottom: 24px;
   left: 16px;
   right: 16px;
   z-index: 1000;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  box-shadow: 0 6px 16px rgba(0,0,0,0.3);
 }
 
 .bottom-nav {
-  height: 60px;
+  height: 64px;
   background: #ffffff;
   border-top: 1px solid #e2e8f0;
   display: flex;
@@ -221,7 +238,7 @@ input[type="text"], input[type="number"] {
   flex: 1;
   border: none;
   background: none;
-  font-size: 1rem;
+  font-size: 0.95rem;
   font-weight: bold;
   color: #64748b;
   position: relative;
@@ -230,6 +247,7 @@ input[type="text"], input[type="number"] {
 .nav-tab.active {
   color: #3b82f6;
   border-top: 3px solid #3b82f6;
+  background: #f8fafc;
 }
 
 .badge {
@@ -237,12 +255,11 @@ input[type="text"], input[type="number"] {
   color: white;
   border-radius: 50%;
   padding: 2px 6px;
-  font-size: 0.7rem;
+  font-size: 0.65rem;
   position: absolute;
-  top: 10px;
+  top: 12px;
 }
 
-/* CARTE DES DÉFIS */
 .challenges-container {
   display: flex;
   flex-direction: column;
@@ -250,13 +267,14 @@ input[type="text"], input[type="number"] {
   padding: 16px;
   height: 100%;
   overflow-y: auto;
+  background: #f1f5f9;
 }
 
 .challenge-card {
   background: white;
   border-radius: 12px;
-  padding: 14px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  padding: 16px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
 }
 
 .challenge-card h3 {
@@ -268,17 +286,16 @@ input[type="text"], input[type="number"] {
 .challenge-text {
   font-size: 0.9rem;
   color: #334155;
-  margin-bottom: 10px;
+  margin-bottom: 12px;
 }
 
-/* MARQUEUR JOUEUR SUR LA CARTE */
 .user-location-dot {
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   background-color: var(--dot-color, #38bdf8);
   border: 3px solid #ffffff;
   border-radius: 50%;
-  box-shadow: 0 0 8px rgba(0,0,0,0.4);
+  box-shadow: 0 0 10px rgba(0,0,0,0.5);
 }
 
 .podium-container {
@@ -286,6 +303,8 @@ input[type="text"], input[type="number"] {
   flex-direction: column;
   gap: 10px;
   margin: 16px 0;
+  max-height: 250px;
+  overflow-y: auto;
 }
 
 .podium-item {
@@ -296,7 +315,8 @@ input[type="text"], input[type="number"] {
   border-radius: 8px;
   background: #f8fafc;
   text-align: left;
+  border: 1px solid #e2e8f0;
 }
 
-.podium-item.first { background: #fef3c7; border: 1px solid #f59e0b; }
-.podium-item.second { background: #e2e8f0; border: 1px solid #94a3b8; }
+.podium-item.first { background: #fef3c7; border-color: #f59e0b; }
+.podium-item.second { background: #f1f5f9; border-color: #cbd5e1; }
