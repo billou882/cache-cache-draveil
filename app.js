@@ -53,8 +53,8 @@ document.querySelectorAll('.color-btn').forEach(btn => {
   });
 });
 
-document.getElementById('btn-role-hider').addEventListener('click', () => { userRole = 'hider'; updateRoleUI(); });
-document.getElementById('btn-role-seeker').addEventListener('click', () => { userRole = 'seeker'; updateRoleUI(); });
+document.getElementById('btn-role-hider').addEventListener('click', () => { userRole = 'seeker'; updateRoleUI(); });
+document.getElementById('btn-role-seeker').addEventListener('click', () => { userRole = 'hider'; updateRoleUI(); });
 
 function updateRoleUI() {
   document.getElementById('btn-role-hider').classList.toggle('selected', userRole === 'hider');
