@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Cache-Cache GPS - Port aux Cerises</title>
+
+  <!-- Leaflet CSS (Carte OpenStreetMap) -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+  <!-- SDK Firebase (compatibilité Web direct) -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+
+  <!-- Styles personnalisés -->
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- ÉCRAN DE CONNEXION / SALON (Au lancement) -->
+  <div id="lobby-screen" class="lobby-container">
+    <h2>🎯 Cache-Cache GPS</h2>
+    <p class="subtitle">Base de loisirs du Port aux Cerises</p>
+
+    <div class="lobby-box">
+      <h3>1. Choisis ton rôle</h3>
+      <div class="role-select">
+        <button id="btn-role-hider" class="btn-role">🥷 Caché</button>
+        <button id="btn-role-seeker" class="btn-role">🕵️ Chercheur</button>
+      </div>
+      <p id="selected-role-text" class="info-text">Aucun rôle sélectionné</p>
+
+      <hr class="divider">
+
+      <h3>2. Rejoindre ou créer un salon</h3>
+      <div class="code-actions">
+        <button id="btn-create-room" class="btn-primary">🎲 Créer un salon</button>
+        <div class="join-box">
+          <input type="number" id="room-code-input" placeholder="Code 4 chiffres (ex: 1234)" pattern="[0-9]*">
+          <button id="btn-join-room" class="btn-secondary">Rejoindre</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ÉCRAN PRINCIPAL DU JEU -->
+  <div id="app-container" class="status-normal" style="display: none;">
+
+    <!-- [HAUT] Bandeau d'Alertes et Statut -->
+    <header id="status-bar">
+      <div class="room-tag">Salon : <span id="display-room-code">----</span></div>
+      <div id="status-text">Initialisation...</div>
+      <div id="timer-display">25:00</div>
+    </header>
+
+    <!-- [CENTRE] Carte Interactive & Onglets -->
+    <main id="main-content">
+      <div id="tab-map" class="tab-page active">
+        <div id="map"></div>
+        <button id="btn-recenter" class="map-btn">🎯 Recentrer</button>
+      </div>
+
+      <!-- [ONGLET 2] Jokers & Anti-Triche -->
+      <div id="tab-jokers" class="tab-page">
+        <div class="card">
+          <h3>🃏 Jokers Disponibles</h3>
+          <button id="btn-joker-freeze" class="action-btn" disabled>❄️ Freeze (Immobiliser 5 min)</button>
+          <p class="hint">S'active automatiquement si le chercheur passe sous les 50m.</p>
+        </div>
+
+        <div class="card">
+          <h3>📸 Preuve Anti-Triche</h3>
+          <p>Prends une photo de ton emplacement au début pour prouver ta position.</p>
+          <input type="file" id="photo-input" accept="image/*" capture="environment" style="display:none;">
+          <button id="btn-take-photo" class="action-btn">📷 Prendre une photo</button>
+          <div id="photo-preview"></div>
+        </div>
+
+        <div class="card">
+          <h3>⚙️ Paramètres</h3>
+          <label class="toggle-label">
+            <input type="checkbox" id="toggle-effects" checked>
+            Effets visuels (bordures clignotantes)
+          </label>
+          <label class="toggle-label">
+            <input type="checkbox" id="toggle-sound" checked>
+            Alertes sonores
+          </label>
+        </div>
+      </div>
+    </main>
+
+    <!-- [BAS] Barres de Navigation -->
+    <footer id="bottom-bar">
+      <nav id="nav-tabs">
+        <button class="nav-btn active" data-tab="tab-map">🗺️ Carte</button>
+        <button class="nav-btn" data-tab="tab-jokers">🃏 Jokers & Gages</button>
+      </nav>
+    </footer>
+
+  </div>
+
+  <!-- Leaflet JS & Logiciel de jeu -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
