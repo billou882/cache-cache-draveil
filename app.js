@@ -31,6 +31,7 @@ let isHidingPhaseOver = false;
 
 let survivalTimeFormatted = "00:00";
 let outOfCircleStartTime = null;
+let gameInterval = null;
 
 // CALCUL DE DISTANCE EN MÈTRES (HAVERSINE)
 function getDistanceInMeters(lat1, lon1, lat2, lon2) {
@@ -44,7 +45,7 @@ function getDistanceInMeters(lat1, lon1, lat2, lon2) {
   return R * c;
 }
 
-// Sélection des couleurs
+// SELECTION DU PROFIL ET RÔLE
 document.querySelectorAll('.color-btn').forEach(btn => {
   btn.addEventListener('click', (e) => {
     document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('selected'));
@@ -53,16 +54,8 @@ document.querySelectorAll('.color-btn').forEach(btn => {
   });
 });
 
-// Sélection des rôles
-document.getElementById('btn-role-hider').addEventListener('click', () => { 
-  userRole = 'hider'; 
-  updateRoleUI(); 
-});
-
-document.getElementById('btn-role-seeker').addEventListener('click', () => { 
-  userRole = 'seeker'; 
-  updateRoleUI(); 
-});
+document.getElementById('btn-role-hider').addEventListener('click', () => { userRole = 'hider'; updateRoleUI(); });
+document.getElementById('btn-role-seeker').addEventListener('click', () => { userRole = 'seeker'; updateRoleUI(); });
 
 function updateRoleUI() {
   document.getElementById('btn-role-hider').classList.toggle('selected', userRole === 'hider');
@@ -118,6 +111,7 @@ function enterWaitingRoom() {
   document.getElementById('waiting-room-code').innerText = roomCode;
 
   db.ref(`rooms/${roomCode}/players/${userRole}`).set({ 
+    role: userRole,
     name: playerName, 
     color: userColor, 
     ready: false,
@@ -131,8 +125,9 @@ function enterWaitingRoom() {
     let readyCount = 0;
     for (let r in p) {
       if (p[r].ready) readyCount++;
-      if (r === 'seeker') seekerColor = p[r].color || "#ef4444";
-      html += `<div style="padding: 6px 0; border-bottom: 1px solid #f1f5f9;"><b>${p[r].name}</b> (${r === 'hider' ? '🥷 Caché' : '🕵️ Chercheur'}) - ${p[r].ready ? '✅ Prêt' : '⏳ En attente'}</div>`;
+      if (p[r].role === 'seeker' || r === 'seeker') seekerColor = p[r].color || "#ef4444";
+      const roleText = (p[r].role === 'hider' || r === 'hider') ? '🥷 Caché' : '🕵️ Chercheur';
+      html += `<div style="padding: 6px 0; border-bottom: 1px solid #f1f5f9;"><b>${p[r].name}</b> (${roleText}) - ${p[r].ready ? '✅ Prêt' : '⏳ En attente'}</div>`;
     }
     document.getElementById('players-status-list').innerHTML = html;
 
@@ -145,29 +140,23 @@ function enterWaitingRoom() {
     }
   });
 
-let gameInterval = null; // À ajouter en haut avec tes autres variables "let"
-
-db.ref(`rooms/${roomCode}/gameState`).on('value', (snap) => {
-  const st = snap.val();
-  if (st && (st.phase === 'HIDING' || st.phase === 'HUNTING')) {
-    gameStartTime = st.startTime;
-    hidingDurationMinutes = st.hideDuration || 5;
-    
-    // On lance le jeu seulement si l'écran de jeu n'est pas encore visible
-    if (document.getElementById('app-container').style.display !== 'flex') {
-      startGame();
+  db.ref(`rooms/${roomCode}/gameState`).on('value', (snap) => {
+    const st = snap.val();
+    if (st && (st.phase === 'HIDING' || st.phase === 'HUNTING')) {
+      gameStartTime = st.startTime;
+      hidingDurationMinutes = st.hideDuration || 5;
+      if (document.getElementById('app-container').style.display !== 'flex') {
+        startGame();
+      }
     }
-  }
-  if (st && st.phase === 'REVIEW') openReviewScreen();
-  if (st && st.phase === 'PODIUM') displayPodium();
-});
-
+    if (st && st.phase === 'REVIEW') openReviewScreen();
+    if (st && st.phase === 'PODIUM') displayPodium();
+  });
+}
 
 document.getElementById('btn-ready').addEventListener('click', () => {
   db.ref(`rooms/${roomCode}/players/${userRole}/ready`).set(true);
 });
-
-let gameInterval = null; // À déclarer en haut de votre fichier JS avec vos autres variables globales
 
 function startGame() {
   document.getElementById('waiting-room-screen').style.display = 'none';
@@ -187,10 +176,8 @@ function startGame() {
     document.getElementById('btn-found-seeker').style.display = 'none';
   }
 
-  // Empêche la multiplication des boucles en réinitialisant l'intervalle si déjà existant
   if (gameInterval) clearInterval(gameInterval);
   gameInterval = setInterval(gameLoop, 1000);
-}
 }
 
 function initMap() {
@@ -276,7 +263,7 @@ function listenSync() {
     if (c) {
       circleCenter = [c.lat, c.lng];
       circleRadius = c.radius || 400;
-      if (userRole === 'hider' && isHidingPhaseOver) {
+      if (userRole === 'seeker') {
         renderCircle(circleCenter[0], circleCenter[1], circleRadius);
       }
     }
@@ -313,7 +300,6 @@ function renderChallengesList() {
   const container = document.querySelector('.challenges-container');
   const creationBox = document.getElementById('seeker-challenge-creation');
   
-  // Conserver le bloc de création s'il est présent
   let html = (userRole === 'seeker' && creationBox) ? creationBox.outerHTML : '';
   const keys = Object.keys(activeChallengesList);
 
@@ -341,7 +327,6 @@ function renderChallengesList() {
 
   container.innerHTML = html;
 
-  // Réattacher l'événement du bouton de création si nécessaire
   const newSendBtn = document.getElementById('btn-send-challenge');
   if (newSendBtn) {
     newSendBtn.onclick = () => {
@@ -435,7 +420,6 @@ function openReviewScreen() {
 
 window.reviewPhoto = function(photoKey, accept, pts) {
   if (accept) {
-    // Ajouter les points directement au score du caché dans Firebase
     db.ref(`rooms/${roomCode}/players/hider/score`).transaction((currentScore) => {
       return (currentScore || 0) + pts;
     });
@@ -485,15 +469,13 @@ function displayPodium() {
   });
 }
 
-// MANCHE SUIVANTE ET REINITIALISATION
+// MANCHE SUIVANTE ET REINITIALISATION TOTALE
 document.getElementById('btn-swap-roles').addEventListener('click', () => {
-  // 1. Réinitialiser la sélection locale
   userRole = null; 
   document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('selected'));
   document.getElementById('btn-role-hider').classList.remove('selected');
   document.getElementById('btn-role-seeker').classList.remove('selected');
 
-  // 2. Nettoyage de la carte et des variables
   circleCenter = null;
   circleRadius = 400;
   activeChallengesList = {};
@@ -505,23 +487,17 @@ document.getElementById('btn-swap-roles').addEventListener('click', () => {
     seekerCircle = null;
   }
 
-  // 3. Basculer l'affichage vers l'écran d'accueil (Lobby) au lieu de la salle d'attente
+  db.ref(`rooms/${roomCode}/challenges`).remove();
+  db.ref(`rooms/${roomCode}/circle`).remove();
+  db.ref(`rooms/${roomCode}/roundStatus`).remove();
+  db.ref(`rooms/${roomCode}/submittedPhotos`).remove();
+
+  db.ref(`rooms/${roomCode}/gameState`).set({ phase: 'WAITING' });
+
   document.getElementById('podium-screen').style.display = 'none';
   document.getElementById('review-screen').style.display = 'none';
   document.getElementById('app-container').style.display = 'none';
   document.getElementById('lobby-screen').style.display = 'flex';
-});
-
-  db.ref(`rooms/${roomCode}/players/${userRole}`).set({ 
-    name: playerName, 
-    color: userColor, 
-    ready: false,
-    score: playerScore 
-  });
-
-  db.ref(`rooms/${roomCode}/gameState`).set({ phase: 'WAITING' });
-
-  enterWaitingRoom();
 });
 
 document.getElementById('btn-leave-room').addEventListener('click', () => {
@@ -537,7 +513,7 @@ function gameLoop() {
     const hideEndTime = gameStartTime + hideDurationMs;
     const remainingMs = hideEndTime - now;
 
-    // 1. PHASE DE CACHETTE (Textes inversés à l'affichage)
+    // 1. PHASE DE CACHETTE
     if (remainingMs > 0) {
       isHidingPhaseOver = false;
       circleRadius = 400;
@@ -547,14 +523,13 @@ function gameLoop() {
 
       document.getElementById('timer-display').innerText = `${m}:${s}`;
       
-      // Inversion de l'affichage pour correspondre à l'écran
       if (userRole === 'hider') {
         document.getElementById('status-text').innerText = `Le caché se positionne... Zone active dans ${m}:${s}`;
       } else {
         document.getElementById('status-text').innerText = `Cache-toi vite ! Zone active dans ${m}:${s}`;
       }
     } 
-    // 2. PHASE DE CHASSE (Consignes inversées à l'affichage)
+    // 2. PHASE DE CHASSE
     else {
       const elapsedMs = now - hideEndTime;
       const elapsedMinutes = Math.floor(elapsedMs / (60 * 1000));
@@ -565,19 +540,15 @@ function gameLoop() {
         updateCircleRadiusInDb();
       }
 
-      // CHRONOMÈTRE DE SURVIE (Temps écoulé)
       const totalSec = Math.floor(elapsedMs / 1000);
       const m = String(Math.floor(totalSec / 60)).padStart(2, '0');
       const s = String(totalSec % 60).padStart(2, '0');
       survivalTimeFormatted = `${m}:${s}`;
       document.getElementById('timer-display').innerText = survivalTimeFormatted;
 
-      // GESTION STATUTS & PÉNALITÉS PAR RÔLE (Affichages permutés)
       if (userRole === 'seeker') {
-        // Affiche la consigne de survie au chercheur
-        document.getElementById('status-text').innerText = `La chasse est lancée ! Survis le plus longtemps possible. (Zone : ${circleRadius}m)`;
+        document.getElementById('status-text').innerText = `La chasse est lancée ! Survis le plus longtemps possible.`;
       } else if (userRole === 'hider') {
-        // Affiche la consigne de zone au caché
         if (userPos && circleCenter) {
           const dist = getDistanceInMeters(userPos[0], userPos[1], circleCenter[0], circleCenter[1]);
           const isOutside = dist > circleRadius;
@@ -619,7 +590,7 @@ function gameLoop() {
     }
   }
 
-  // CHRONOS DÉFIS (10 MIN)
+  // CHRONOS DÉFIS
   for (let id in activeChallengesList) {
     const ch = activeChallengesList[id];
     const rem = Math.floor((ch.endTime - now) / 1000);
