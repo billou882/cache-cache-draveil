@@ -1,3 +1,5 @@
+// VERSION 4.1
+
 const firebaseConfig = {
   apiKey: "AIzaSyBcxudeQK91giQA5kzSa6wnFZzJIgODjq8",
   authDomain: "cache-cache-draveil.firebaseapp.com",
@@ -21,7 +23,7 @@ let userPos = null;
 let seekerColor = "#ef4444";
 
 let circleCenter = null;
-let circleRadius = 400; // Rayon initial à 400 mètres
+let circleRadius = 400;
 
 let playerScore = 0;
 let activeChallengesList = {};
@@ -45,64 +47,196 @@ function getDistanceInMeters(lat1, lon1, lat2, lon2) {
   return R * c;
 }
 
-// SELECTION DU PROFIL ET RÔLE
-document.querySelectorAll('.color-btn').forEach(btn => {
-  btn.addEventListener('click', (e) => {
-    document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('selected'));
-    e.currentTarget.classList.add('selected');
-    userColor = e.currentTarget.dataset.color;
+// INITIALISATION SÉCURISÉE DES ÉVÉNEMENTS DOM
+document.addEventListener('DOMContentLoaded', () => {
+  // Sélection des couleurs
+  document.querySelectorAll('.color-btn').forEach(btn => {
+    btn.onclick = (e) => {
+      document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('selected'));
+      e.currentTarget.classList.add('selected');
+      userColor = e.currentTarget.dataset.color;
+    };
   });
-});
 
-document.getElementById('btn-role-hider').addEventListener('click', () => { userRole = 'hider'; updateRoleUI(); });
-document.getElementById('btn-role-seeker').addEventListener('click', () => { userRole = 'seeker'; updateRoleUI(); });
+  // Sélection des rôles
+  const btnHider = document.getElementById('btn-role-hider');
+  const btnSeeker = document.getElementById('btn-role-seeker');
+
+  if (btnHider) {
+    btnHider.onclick = () => {
+      userRole = 'hider';
+      updateRoleUI();
+    };
+  }
+
+  if (btnSeeker) {
+    btnSeeker.onclick = () => {
+      userRole = 'seeker';
+      updateRoleUI();
+    };
+  }
+
+  // Navigation onglets
+  document.querySelectorAll('.nav-tab').forEach(tab => {
+    tab.onclick = (e) => {
+      document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-page').forEach(p => p.classList.remove('active'));
+      
+      e.target.classList.add('active');
+      const targetTabId = e.target.dataset.tab;
+      document.getElementById(targetTabId).classList.add('active');
+
+      if (targetTabId === 'tab-map') {
+        setTimeout(() => {
+          if (map) {
+            map.invalidateSize();
+            if (userPos) map.setView(userPos, 16);
+          }
+        }, 100);
+      }
+
+      if (targetTabId === 'tab-challenges') {
+        document.getElementById('challenge-badge').style.display = 'none';
+        document.getElementById('map-notification').style.display = 'none';
+      }
+    };
+  });
+
+  // Création / Jonction de salon
+  const btnCreate = document.getElementById('btn-create-room');
+  if (btnCreate) {
+    btnCreate.onclick = () => {
+      if (!userRole) return alert("Choisis ton rôle !");
+      playerName = document.getElementById('player-name-input').value.trim() || "Joueur";
+      hidingDurationMinutes = parseInt(document.getElementById('hide-time-input').value) || 5;
+      roomCode = Math.floor(1000 + Math.random() * 9000).toString();
+      enterWaitingRoom();
+    };
+  }
+
+  const btnJoin = document.getElementById('btn-join-room');
+  if (btnJoin) {
+    btnJoin.onclick = () => {
+      if (!userRole) return alert("Choisis ton rôle !");
+      roomCode = document.getElementById('room-code-input').value.trim();
+      playerName = document.getElementById('player-name-input').value.trim() || "Joueur";
+      enterWaitingRoom();
+    };
+  }
+
+  // Bouton Prêt
+  const btnReady = document.getElementById('btn-ready');
+  if (btnReady) {
+    btnReady.onclick = () => {
+      db.ref(`rooms/${roomCode}/players/${userRole}/ready`).set(true);
+    };
+  }
+
+  // Soumission photo
+  const photoInput = document.getElementById('challenge-photo-input');
+  if (photoInput) {
+    photoInput.onchange = (e) => {
+      const file = e.target.files[0];
+      if (file && selectedChallengeIdForPhoto && activeChallengesList[selectedChallengeIdForPhoto]) {
+        const ch = activeChallengesList[selectedChallengeIdForPhoto];
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          db.ref(`rooms/${roomCode}/submittedPhotos`).push({
+            challengeText: ch.text,
+            pts: ch.pts,
+            photo: event.target.result,
+            status: 'PENDING'
+          });
+
+          db.ref(`rooms/${roomCode}/challenges/${selectedChallengeIdForPhoto}`).remove();
+          alert("📸 Photo envoyée pour validation !");
+        };
+        reader.readAsDataURL(file);
+      }
+    };
+  }
+
+  // Interaction détection chercheur / confirmation caché
+  const btnFound = document.getElementById('btn-found-seeker');
+  if (btnFound) {
+    btnFound.onclick = () => {
+      db.ref(`rooms/${roomCode}/roundStatus`).set('SEEKER_CLAIMED');
+      alert("Demande envoyée au caché !");
+    };
+  }
+
+  const btnConfirm = document.getElementById('btn-confirm-hider');
+  if (btnConfirm) {
+    btnConfirm.onclick = () => {
+      db.ref(`rooms/${roomCode}/roundStatus`).set('CONFIRMED');
+    };
+  }
+
+  const btnFinishRev = document.getElementById('btn-finish-review');
+  if (btnFinishRev) {
+    btnFinishRev.onclick = () => {
+      db.ref(`rooms/${roomCode}/gameState/phase`).set('PODIUM');
+    };
+  }
+
+  // Relancer une manche
+  const btnSwap = document.getElementById('btn-swap-roles');
+  if (btnSwap) {
+    btnSwap.onclick = () => {
+      userRole = null; 
+      document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('selected'));
+      document.getElementById('btn-role-hider').classList.remove('selected');
+      document.getElementById('btn-role-seeker').classList.remove('selected');
+
+      circleCenter = null;
+      circleRadius = 400;
+      activeChallengesList = {};
+      outOfCircleStartTime = null;
+      isHidingPhaseOver = false;
+
+      if (seekerCircle && map) {
+        map.removeLayer(seekerCircle);
+        seekerCircle = null;
+      }
+
+      db.ref(`rooms/${roomCode}/challenges`).remove();
+      db.ref(`rooms/${roomCode}/circle`).remove();
+      db.ref(`rooms/${roomCode}/roundStatus`).remove();
+      db.ref(`rooms/${roomCode}/submittedPhotos`).remove();
+
+      db.ref(`rooms/${roomCode}/gameState`).set({ phase: 'WAITING' });
+
+      document.getElementById('podium-screen').style.display = 'none';
+      document.getElementById('review-screen').style.display = 'none';
+      document.getElementById('app-container').style.display = 'none';
+      document.getElementById('lobby-screen').style.display = 'flex';
+    };
+  }
+
+  const btnLeave = document.getElementById('btn-leave-room');
+  if (btnLeave) {
+    btnLeave.onclick = () => {
+      location.reload();
+    };
+  }
+
+  const btnRecenter = document.getElementById('btn-recenter');
+  if (btnRecenter) {
+    btnRecenter.onclick = () => {
+      if (userPos && map) {
+        map.setView(userPos, 16);
+        map.invalidateSize();
+      }
+    };
+  }
+});
 
 function updateRoleUI() {
-  document.getElementById('btn-role-hider').classList.toggle('selected', userRole === 'hider');
-  document.getElementById('btn-role-seeker').classList.toggle('selected', userRole === 'seeker');
+  const btnHider = document.getElementById('btn-role-hider');
+  const btnSeeker = document.getElementById('btn-role-seeker');
+  if (btnHider) btnHider.classList.toggle('selected', userRole === 'hider');
+  if (btnSeeker) btnSeeker.classList.toggle('selected', userRole === 'seeker');
 }
-
-// NAVIGATION ONGLETS
-document.querySelectorAll('.nav-tab').forEach(tab => {
-  tab.addEventListener('click', (e) => {
-    document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
-    document.querySelectorAll('.tab-page').forEach(p => p.classList.remove('active'));
-    
-    e.target.classList.add('active');
-    const targetTabId = e.target.dataset.tab;
-    document.getElementById(targetTabId).classList.add('active');
-
-    if (targetTabId === 'tab-map') {
-      setTimeout(() => {
-        if (map) {
-          map.invalidateSize();
-          if (userPos) map.setView(userPos, 16);
-        }
-      }, 100);
-    }
-
-    if (targetTabId === 'tab-challenges') {
-      document.getElementById('challenge-badge').style.display = 'none';
-      document.getElementById('map-notification').style.display = 'none';
-    }
-  });
-});
-
-// REJOINDRE OU CRÉER SALON
-document.getElementById('btn-create-room').addEventListener('click', () => {
-  if (!userRole) return alert("Choisis ton rôle !");
-  playerName = document.getElementById('player-name-input').value.trim() || "Joueur";
-  hidingDurationMinutes = parseInt(document.getElementById('hide-time-input').value) || 5;
-  roomCode = Math.floor(1000 + Math.random() * 9000).toString();
-  enterWaitingRoom();
-});
-
-document.getElementById('btn-join-room').addEventListener('click', () => {
-  if (!userRole) return alert("Choisis ton rôle !");
-  roomCode = document.getElementById('room-code-input').value.trim();
-  playerName = document.getElementById('player-name-input').value.trim() || "Joueur";
-  enterWaitingRoom();
-});
 
 function enterWaitingRoom() {
   document.getElementById('lobby-screen').style.display = 'none';
@@ -153,10 +287,6 @@ function enterWaitingRoom() {
     if (st && st.phase === 'PODIUM') displayPodium();
   });
 }
-
-document.getElementById('btn-ready').addEventListener('click', () => {
-  db.ref(`rooms/${roomCode}/players/${userRole}/ready`).set(true);
-});
 
 function startGame() {
   document.getElementById('waiting-room-screen').style.display = 'none';
@@ -356,35 +486,6 @@ window.triggerPhotoUpload = function(challengeId) {
   document.getElementById('challenge-photo-input').click();
 };
 
-document.getElementById('challenge-photo-input').addEventListener('change', (e) => {
-  const file = e.target.files[0];
-  if (file && selectedChallengeIdForPhoto && activeChallengesList[selectedChallengeIdForPhoto]) {
-    const ch = activeChallengesList[selectedChallengeIdForPhoto];
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      db.ref(`rooms/${roomCode}/submittedPhotos`).push({
-        challengeText: ch.text,
-        pts: ch.pts,
-        photo: event.target.result,
-        status: 'PENDING'
-      });
-
-      db.ref(`rooms/${roomCode}/challenges/${selectedChallengeIdForPhoto}`).remove();
-      alert("📸 Photo envoyée pour validation !");
-    };
-    reader.readAsDataURL(file);
-  }
-});
-
-document.getElementById('btn-found-seeker').addEventListener('click', () => {
-  db.ref(`rooms/${roomCode}/roundStatus`).set('SEEKER_CLAIMED');
-  alert("Demande envoyée au caché !");
-});
-
-document.getElementById('btn-confirm-hider').addEventListener('click', () => {
-  db.ref(`rooms/${roomCode}/roundStatus`).set('CONFIRMED');
-});
-
 function openReviewScreen() {
   document.getElementById('app-container').style.display = 'none';
   document.getElementById('review-screen').style.display = 'flex';
@@ -428,10 +529,6 @@ window.reviewPhoto = function(photoKey, accept, pts) {
   openReviewScreen();
 };
 
-document.getElementById('btn-finish-review').addEventListener('click', () => {
-  db.ref(`rooms/${roomCode}/gameState/phase`).set('PODIUM');
-});
-
 function displayPodium() {
   document.getElementById('review-screen').style.display = 'none';
   document.getElementById('app-container').style.display = 'none';
@@ -469,42 +566,6 @@ function displayPodium() {
   });
 }
 
-// MANCHE SUIVANTE ET REINITIALISATION TOTALE
-document.getElementById('btn-swap-roles').addEventListener('click', () => {
-  userRole = null; 
-  document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('selected'));
-  document.getElementById('btn-role-hider').classList.remove('selected');
-  document.getElementById('btn-role-seeker').classList.remove('selected');
-
-  circleCenter = null;
-  circleRadius = 400;
-  activeChallengesList = {};
-  outOfCircleStartTime = null;
-  isHidingPhaseOver = false;
-
-  if (seekerCircle && map) {
-    map.removeLayer(seekerCircle);
-    seekerCircle = null;
-  }
-
-  db.ref(`rooms/${roomCode}/challenges`).remove();
-  db.ref(`rooms/${roomCode}/circle`).remove();
-  db.ref(`rooms/${roomCode}/roundStatus`).remove();
-  db.ref(`rooms/${roomCode}/submittedPhotos`).remove();
-
-  db.ref(`rooms/${roomCode}/gameState`).set({ phase: 'WAITING' });
-
-  document.getElementById('podium-screen').style.display = 'none';
-  document.getElementById('review-screen').style.display = 'none';
-  document.getElementById('app-container').style.display = 'none';
-  document.getElementById('lobby-screen').style.display = 'flex';
-});
-
-document.getElementById('btn-leave-room').addEventListener('click', () => {
-  location.reload();
-});
-
-// BOUCLE PRINCIPALE DU JEU
 function gameLoop() {
   const now = Date.now();
 
@@ -513,7 +574,6 @@ function gameLoop() {
     const hideEndTime = gameStartTime + hideDurationMs;
     const remainingMs = hideEndTime - now;
 
-    // 1. PHASE DE CACHETTE
     if (remainingMs > 0) {
       isHidingPhaseOver = false;
       circleRadius = 400;
@@ -528,9 +588,7 @@ function gameLoop() {
       } else {
         document.getElementById('status-text').innerText = `Cache-toi vite ! Zone active dans ${m}:${s}`;
       }
-    } 
-    // 2. PHASE DE CHASSE
-    else {
+    } else {
       const elapsedMs = now - hideEndTime;
       const elapsedMinutes = Math.floor(elapsedMs / (60 * 1000));
 
@@ -590,7 +648,6 @@ function gameLoop() {
     }
   }
 
-  // CHRONOS DÉFIS
   for (let id in activeChallengesList) {
     const ch = activeChallengesList[id];
     const rem = Math.floor((ch.endTime - now) / 1000);
@@ -615,10 +672,3 @@ function updateCircleRadiusInDb() {
     db.ref(`rooms/${roomCode}/circle/radius`).set(circleRadius);
   }
 }
-
-document.getElementById('btn-recenter').addEventListener('click', () => {
-  if (userPos && map) {
-    map.setView(userPos, 16);
-    map.invalidateSize();
-  }
-});
