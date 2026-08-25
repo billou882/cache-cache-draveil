@@ -137,21 +137,29 @@ function enterWaitingRoom() {
     }
   });
 
-  db.ref(`rooms/${roomCode}/gameState`).on('value', (snap) => {
-    const st = snap.val();
-    if (st && (st.phase === 'HIDING' || st.phase === 'HUNTING')) {
-      gameStartTime = st.startTime;
-      hidingDurationMinutes = st.hideDuration || 5;
+let gameInterval = null; // À ajouter en haut avec tes autres variables "let"
+
+db.ref(`rooms/${roomCode}/gameState`).on('value', (snap) => {
+  const st = snap.val();
+  if (st && (st.phase === 'HIDING' || st.phase === 'HUNTING')) {
+    gameStartTime = st.startTime;
+    hidingDurationMinutes = st.hideDuration || 5;
+    
+    // On lance le jeu seulement si l'écran de jeu n'est pas encore visible
+    if (document.getElementById('app-container').style.display !== 'flex') {
       startGame();
     }
-    if (st && st.phase === 'REVIEW') openReviewScreen();
-    if (st && st.phase === 'PODIUM') displayPodium();
-  });
-}
+  }
+  if (st && st.phase === 'REVIEW') openReviewScreen();
+  if (st && st.phase === 'PODIUM') displayPodium();
+});
+
 
 document.getElementById('btn-ready').addEventListener('click', () => {
   db.ref(`rooms/${roomCode}/players/${userRole}/ready`).set(true);
 });
+
+let gameInterval = null; // À déclarer en haut de votre fichier JS avec vos autres variables globales
 
 function startGame() {
   document.getElementById('waiting-room-screen').style.display = 'none';
@@ -171,7 +179,10 @@ function startGame() {
     document.getElementById('btn-found-seeker').style.display = 'none';
   }
 
-  setInterval(gameLoop, 1000);
+  // Empêche la multiplication des boucles en réinitialisant l'intervalle si déjà existant
+  if (gameInterval) clearInterval(gameInterval);
+  gameInterval = setInterval(gameLoop, 1000);
+}
 }
 
 function initMap() {
