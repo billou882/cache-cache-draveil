@@ -2,148 +2,127 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Cache-Cache GPS</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cache-Cache Géolocalisé v5.0 Premium</title>
+  
+  <!-- Leaflet CSS -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <!-- Feuille de style principale -->
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-  <!-- ÉCRAN ACCUEIL / LOBBY -->
-  <div id="lobby-screen" class="screen">
-    <div class="card">
-      <h2>🥷 Cache-Cache GPS V5.1</h2>
-      <div class="form-group">
-        <label>nom du groupe :</label>
-        <input type="text" id="player-name-input" placeholder="Ex: Lucas">
-      </div>
-      
-      <div class="form-group">
-        <label>Couleur de ton groupe:</label>
-        <div class="color-picker">
-          <button class="color-btn selected" data-color="#38bdf8" style="background:#38bdf8;"></button>
-          <button class="color-btn" data-color="#a855f7" style="background:#a855f7;"></button>
-          <button class="color-btn" data-color="#f59e0b" style="background:#f59e0b;"></button>
-          <button class="color-btn" data-color="#10b981" style="background:#10b981;"></button>
-          <button class="color-btn" data-color="#ec4899" style="background:#ec4899;"></button>
-        </div>
-      </div>
-
-      <div class="form-group">
-        <label>Rôle pour cette manche :</label>
-        <div class="role-selector">
-          <button id="btn-role-hider" class="btn-role">🥷 Caché</button>
-          <button id="btn-role-seeker" class="btn-role">🕵️ Chercheur</button>
-        </div>
-      </div>
-
-      <hr>
-
-      <div class="form-group">
-        <label>Temps de cachette (min) :</label>
-        <input type="number" id="hide-time-input" value="5" min="1">
-      </div>
-
-      <button id="btn-create-room" class="btn-primary">Créer une partie</button>
-      
-      <div class="or-divider">OU</div>
-
-      <div class="form-group">
-        <input type="text" id="room-code-input" placeholder="Code du salon (ex: 1234)">
-      </div>
-      <button id="btn-join-room" class="btn-secondary">Rejoindre une partie</button>
+  <!-- Écran 1 : Salon / Accueil -->
+  <div id="lobby-screen" class="screen active">
+    <h1>Cache-Cache 5.0</h1>
+    <div class="form-group">
+      <label>Votre Pseudo</label>
+      <input type="text" id="player-name-input" placeholder="Entrez votre nom">
     </div>
-  </div>
 
-  <!-- SALLE D'ATTENTE -->
-  <div id="waiting-room-screen" class="screen" style="display: none;">
-    <div class="card text-center">
-      <h2>Salon : <span id="waiting-room-code">----</span></h2>
-      <p style="color:#64748b; margin-bottom: 14px;">En attente des joueurs...</p>
-      <div id="players-status-list" class="status-list"></div>
-      <button id="btn-ready" class="btn-primary" style="margin-top: 15px;">Je suis prêt !</button>
+    <label>Couleur de Marqueur</label>
+    <div class="color-picker">
+      <div class="color-btn selected" style="background: #ff4757;" data-color="#ff4757"></div>
+      <div class="color-btn" style="background: #2ed573;" data-color="#2ed573"></div>
+      <div class="color-btn" style="background: #1e90ff;" data-color="#1e90ff"></div>
+      <div class="color-btn" style="background: #ffa500;" data-color="#ffa500"></div>
     </div>
-  </div>
 
-  <!-- APPLICATION PRINCIPALE -->
-  <div id="app-container" style="display: none;">
+    <div class="form-group">
+      <label>Choisir un Rôle</label>
+      <div class="role-selector">
+        <div class="role-btn selected" id="btn-role-hider" data-role="hider">Caché (Souris)</div>
+        <div class="role-btn" id="btn-role-seeker" data-role="seeker">Chercheur (Chat)</div>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>Temps de Cachette (minutes)</label>
+      <input type="number" id="hide-time-input" value="5" min="1" max="15">
+    </div>
+
+    <button id="btn-create-room" class="btn" style="margin-bottom: 10px;">Créer un Salon</button>
     
-    <header class="app-header">
-      <div class="timer-box">
-        <span class="timer-label">⏱️ TEMPS</span>
-        <span id="timer-display" class="timer-value">05:00</span>
-      </div>
-      <div id="status-text" class="status-banner">Préparez-vous !</div>
-    </header>
+    <hr style="border-color: #333; margin: 10px 0;">
 
-    <div class="tab-content">
-      
-      <!-- PAGE CARTE -->
-      <div id="tab-map" class="tab-page active">
-        <div id="map"></div>
-        <button id="btn-recenter" class="map-btn">🎯 Se recentrer</button>
-        
-        <div id="map-notification" class="map-toast" style="display: none;">
-          🎯 Nouveau défi disponible ! Voir onglet Défis.
+    <div class="form-group">
+      <input type="text" id="room-code-input" placeholder="Code à 4 chiffres">
+      <button id="btn-join-room" class="btn btn-secondary" style="margin-top: 5px;">Rejoindre Salon</button>
+    </div>
+  </div>
+
+  <!-- Écran 2 : Salle d'Attente -->
+  <div id="waiting-room-screen" class="screen">
+    <h2>Salle d'Attente</h2>
+    <p style="text-align: center; margin-bottom: 20px;">Code du Salon : <strong id="waiting-room-code" style="color: var(--primary); font-size: 1.5rem;">----</strong></p>
+    
+    <div id="players-status-list" style="flex: 1; background: #2c2c2c; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+      <!-- Liste dynamique des joueurs -->
+    </div>
+
+    <button id="btn-ready" class="btn btn-success">Je suis Prêt !</button>
+  </div>
+
+  <!-- Écran 3 : Carte et Jeu Principal -->
+  <div id="app-container" class="screen">
+    <div id="map-header">
+      <div>
+        <div id="timer-display">00:00</div>
+        <div id="status-text">Initialisation...</div>
+      </div>
+      <button id="btn-recenter" class="btn btn-secondary" style="padding: 5px 10px; font-size: 0.8rem;">🎯 GPS</button>
+    </div>
+
+    <div id="map"></div>
+
+    <div id="map-controls">
+      <!-- Zone des Défis -->
+      <div id="tab-challenges">
+        <!-- Formulaire Chercheur -->
+        <div id="seeker-challenge-form" style="display: none;">
+          <input type="text" id="custom-challenge-text" placeholder="Ex: Prends un banc en photo" style="width: 100%; margin-bottom: 5px;">
+          <input type="number" id="custom-challenge-pts" placeholder="Points (ex: 50)" style="width: 100%; margin-bottom: 5px;">
+          <button id="btn-send-challenge" class="btn btn-secondary" style="width: 100%;">Envoyer le Défi</button>
         </div>
-
-        <button id="btn-found-seeker" class="btn-danger action-map-btn" style="display: none;">
-          🚨 J'ai trouvé le caché !
-        </button>
-        <button id="btn-confirm-hider" class="btn-success action-map-btn" style="display: none;">
-          ✅ Confirmer le marquage
-        </button>
-      </div>
-
-      <!-- PAGE DÉFIS -->
-      <div id="tab-challenges" class="tab-page">
-        <div class="challenges-container">
-          <div id="seeker-challenge-creation" class="challenge-card" style="display: none;">
-            <h3>🎯 Créer un défi pour le caché</h3>
-            <input type="text" id="custom-challenge-text" placeholder="Ex: Prends une photo d'un banc rouge...">
-            <div style="display: flex; gap: 8px; margin-top: 8px;">
-              <input type="number" id="custom-challenge-pts" value="20" placeholder="Pts" style="width: 80px;">
-              <button id="btn-send-challenge" class="btn-primary" style="flex: 1;">Lancer le défi (10 min)</button>
-            </div>
-          </div>
+        <!-- Formulaire Caché -->
+        <div id="hider-challenge-form" style="display: none; text-align: center;">
+          <p id="hider-challenge-desc" style="margin-bottom: 10px;">Aucun défi en cours.</p>
+          <input type="file" id="challenge-photo-input" accept="image/*" capture="environment" style="display: none;">
+          <button id="btn-trigger-photo" class="btn btn-success">📷 Prendre la photo</button>
         </div>
       </div>
-    </div>
 
-    <input type="file" id="challenge-photo-input" accept="image/*" capture="camera" style="display: none;">
-
-    <nav class="bottom-nav">
-      <button class="nav-tab active" data-tab="tab-map">🗺️ Carte</button>
-      <button class="nav-tab" data-tab="tab-challenges">
-        🎯 Défis <span id="challenge-badge" class="badge" style="display: none;">!</span>
-      </button>
-    </nav>
-  </div>
-
-  <!-- ÉCRAN VALIDATION -->
-  <div id="review-screen" class="screen" style="display: none;">
-    <div class="card">
-      <h2>📷 Validation des défis</h2>
-      <div id="photos-review-list"></div>
-      <button id="btn-finish-review" class="btn-primary" style="margin-top: 15px;">Voir le podium 🏆</button>
+      <button id="btn-found-seeker" class="btn" style="display: none;">J'ai trouvé le caché !</button>
+      <button id="btn-confirm-hider" class="btn btn-success" style="display: none;">Confirmer l'attrapé</button>
     </div>
   </div>
 
-  <!-- ÉCRAN PODIUM -->
-  <div id="podium-screen" class="screen" style="display: none;">
-    <div class="card text-center">
-      <h2>🏆 Fin de la manche</h2>
-      <div id="podium-display" class="podium-container"></div>
-      <div style="display: flex; gap: 10px; margin-top: 20px;">
-        <button id="btn-swap-roles" class="btn-primary" style="flex: 1;">Manche suivante 🔄</button>
-        <button id="btn-leave-room" class="btn-secondary" style="flex: 1;">Quitter 🚪</button>
-      </div>
+  <!-- Écran 4 : Révision des Défis -->
+  <div id="review-screen" class="screen">
+    <h2>Révision des Défis</h2>
+    <div id="photos-review-list" style="flex: 1; overflow-y: auto;">
+      <!-- Photos dynamiques -->
     </div>
+    <button id="btn-finish-review" class="btn">Voir le Podium</button>
   </div>
 
+  <!-- Écran 5 : Podium Final -->
+  <div id="podium-screen" class="screen" style="text-align: center;">
+    <h2>🏆 Fin de Partie</h2>
+    <div id="podium-display" style="margin: 30px 0; font-size: 1.2rem; flex: 1;">
+      <!-- Rendu dynamique du vainqueur -->
+    </div>
+    <button id="btn-swap-roles" class="btn" style="margin-bottom: 10px;">Inverser les rôles</button>
+    <button id="btn-leave-room" class="btn btn-secondary">Quitter le salon</button>
+  </div>
+
+  <!-- Bibliothèques Externes -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+
+  <!-- Vos Scripts JS -->
+  <script src="firebase-config.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
