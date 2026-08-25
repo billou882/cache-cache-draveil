@@ -1,3 +1,7 @@
+// ==========================================
+// CACHE-CACHE GPS — VERSION 1.78
+// ==========================================
+
 // --- CONFIGURATION FIREBASE ---
 const firebaseConfig = {
   apiKey: "AIzaSyBcxudeQK91giQA5kzSa6wnFZzJIgODjq8",
@@ -294,20 +298,11 @@ function startGPS() {
     // Mise à jour du marqueur visuel
     updateMyMarker();
 
-    // Gestion du centre du cercle pour le Chat
-    if (myRole === 'cat') {
+    // La Souris définit le centre de la zone de jeu au démarrage
+    if (myRole === 'mouse') {
       if (!circleCenter) {
         circleCenter = [currentPos[0], currentPos[1]];
         syncCircleDb();
-      } else {
-        const dist = getDistanceInMeters(currentPos[0], currentPos[1], circleCenter[0], circleCenter[1]);
-        if (dist >= circleRadius) {
-          const angle = Math.atan2(currentPos[1] - circleCenter[1], currentPos[0] - circleCenter[0]);
-          const newLat = currentPos[0] - (circleRadius / 111320) * Math.cos(angle);
-          const newLng = currentPos[1] - (circleRadius / (111320 * Math.cos(currentPos[0] * Math.PI / 180))) * Math.sin(angle);
-          circleCenter = [newLat, newLng];
-          syncCircleDb();
-        }
       }
     }
   }, null, { enableHighAccuracy: true });
@@ -368,7 +363,7 @@ function drawCircleOnMap(lat, lng, radius) {
 }
 
 function syncCircleDb() {
-  if (myRole === 'cat' && roomCode && circleCenter) {
+  if (myRole === 'mouse' && roomCode && circleCenter) {
     db.ref(`rooms/${roomCode}/circle`).set({
       lat: circleCenter[0],
       lng: circleCenter[1],
@@ -432,7 +427,6 @@ function mainGameLoop() {
       if (statusTxt) statusTxt.innerText = `Cachez-vous ! Le Chat arrive dans ${m}:${s}`;
     } else {
       if (statusTxt) statusTxt.innerText = `Patientez, la Souris se cache... (${m}:${s})`;
-      // S'assurer que le Chat ne voit rien sur la carte
       if (myMarker) updateMyMarker();
       if (zoneCircleLayer) drawCircleOnMap(0, 0, 0);
     }
@@ -460,11 +454,10 @@ function mainGameLoop() {
     if (myRole === 'cat') {
       setScreenWarningBlink(false);
 
-      if (circleCenter && currentPos) {
+      if (circleCenter) {
         drawCircleOnMap(circleCenter[0], circleCenter[1], circleRadius);
       }
 
-      // Calcul du rétrécissement normal
       const shrinkSteps = Math.floor(elapsedMinutes / 5);
       const nextShrinkMs = ((shrinkSteps + 1) * 5 * 60 * 1000) - elapsedMs;
       const nextSec = Math.max(0, Math.floor(nextShrinkMs / 1000));
@@ -523,6 +516,7 @@ function mainGameLoop() {
       }
     }
   }
+}
 
 // BORDURE CLIGNOTANTE ORANGE EN HORS-ZONE
 function setScreenWarningBlink(enable) {
