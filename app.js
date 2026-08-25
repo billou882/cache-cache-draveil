@@ -44,17 +44,25 @@ function getDistanceInMeters(lat1, lon1, lat2, lon2) {
   return R * c;
 }
 
-// SELECTION DU PROFIL ET RÔLE
+// Sélection des couleurs
 document.querySelectorAll('.color-btn').forEach(btn => {
   btn.addEventListener('click', (e) => {
     document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('selected'));
-    e.target.classList.add('selected');
-    userColor = e.target.dataset.color;
+    e.currentTarget.classList.add('selected');
+    userColor = e.currentTarget.dataset.color;
   });
 });
 
-document.getElementById('btn-role-hider').addEventListener('click', () => { userRole = 'hider'; updateRoleUI(); });
-document.getElementById('btn-role-seeker').addEventListener('click', () => { userRole = 'seeker'; updateRoleUI(); });
+// Sélection des rôles
+document.getElementById('btn-role-hider').addEventListener('click', () => { 
+  userRole = 'hider'; 
+  updateRoleUI(); 
+});
+
+document.getElementById('btn-role-seeker').addEventListener('click', () => { 
+  userRole = 'seeker'; 
+  updateRoleUI(); 
+});
 
 function updateRoleUI() {
   document.getElementById('btn-role-hider').classList.toggle('selected', userRole === 'hider');
@@ -477,11 +485,15 @@ function displayPodium() {
   });
 }
 
-// MANCHE SUIVANTE ET REINITIALISATION TOTALE
+// MANCHE SUIVANTE ET REINITIALISATION
 document.getElementById('btn-swap-roles').addEventListener('click', () => {
-  userRole = userRole === 'hider' ? 'seeker' : 'hider';
-  updateRoleUI();
+  // 1. Réinitialiser la sélection locale
+  userRole = null; 
+  document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('selected'));
+  document.getElementById('btn-role-hider').classList.remove('selected');
+  document.getElementById('btn-role-seeker').classList.remove('selected');
 
+  // 2. Nettoyage de la carte et des variables
   circleCenter = null;
   circleRadius = 400;
   activeChallengesList = {};
@@ -493,11 +505,12 @@ document.getElementById('btn-swap-roles').addEventListener('click', () => {
     seekerCircle = null;
   }
 
-  // Nettoyage complet dans Firebase
-  db.ref(`rooms/${roomCode}/challenges`).remove();
-  db.ref(`rooms/${roomCode}/circle`).remove();
-  db.ref(`rooms/${roomCode}/roundStatus`).remove();
-  db.ref(`rooms/${roomCode}/submittedPhotos`).remove();
+  // 3. Basculer l'affichage vers l'écran d'accueil (Lobby) au lieu de la salle d'attente
+  document.getElementById('podium-screen').style.display = 'none';
+  document.getElementById('review-screen').style.display = 'none';
+  document.getElementById('app-container').style.display = 'none';
+  document.getElementById('lobby-screen').style.display = 'flex';
+});
 
   db.ref(`rooms/${roomCode}/players/${userRole}`).set({ 
     name: playerName, 
