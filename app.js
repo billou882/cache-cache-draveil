@@ -1,4 +1,3 @@
-// --- ÉTAT GLOBAL ---
 let currentUser = { name: "", color: "#ff4757", role: "hider" };
 let roomCode = null;
 let roomRef = null;
@@ -6,7 +5,6 @@ let map = null, userMarker = null, seekerCircleLayer = null;
 let currentPosition = null;
 let outOfZoneStartTime = null;
 
-// Naviguer entre les écrans
 function showScreen(id) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.getElementById(id).classList.add('active');
@@ -15,7 +13,7 @@ function showScreen(id) {
   }
 }
 
-// --- ÉCRAN 1 : FORMULAIRE & LOGIQUE DE SALON ---
+// --- ÉCRAN 1 : SALON ---
 document.querySelectorAll('.color-btn').forEach(btn => {
   btn.addEventListener('click', (e) => {
     document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('selected'));
@@ -43,6 +41,7 @@ document.getElementById('btn-create-room').addEventListener('click', () => {
     state: 'waiting',
     hideDuration: hideDuration,
     circleRadius: 400,
+    circleCenter: null,
     players: {
       [currentUser.role]: { name: currentUser.name, color: currentUser.color, ready: false, score: 0 }
     }
@@ -90,7 +89,7 @@ function initWaitingRoom() {
     if (data.players) {
       Object.keys(data.players).forEach(role => {
         const p = data.players[role];
-        list.innerHTML += `<p><strong>${p.name}</strong> (${role === 'hider' ? 'Caché' : 'Chercheur'}) : ${p.ready ? '✅ Prêt' : '⏳ En attente'}</p>`;
+        list.innerHTML += `<p><strong>${p.name}</strong> (${role === 'hider' ? 'Souris' : 'Chat'}) : ${p.ready ? '✅ Prêt' : '⏳ En attente'}</p>`;
       });
     }
 
@@ -114,7 +113,7 @@ document.getElementById('btn-ready').addEventListener('click', () => {
   });
 });
 
-// --- ÉCRAN 3 : CARTE, LOGIQUE GEOLOCALISATION ET ZONES ---
+// --- ÉCRAN 3 : CARTE ET RÈGLES DE JEU ---
 function initMap() {
   map = L.map('map').setView([0, 0], 15);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
@@ -130,19 +129,70 @@ function initMap() {
         userMarker.setLatLng(currentPosition);
       }
 
-      // Exigence 1 : Inversion et isolation des données Firebase (pas d'écrasement)
       if (roomRef) {
         roomRef.child(`positions/${currentUser.role}`).set({
           lat: pos.coords.latitude,
           lng: pos.coords.longitude
         });
+
+        // La souris gère le glissement du cercle si elle sort
+        if (currentUser.role === 'hider') {
+          handleHiderCircleMovement(pos.coords.latitude, pos.coords.longitude);
+        }
       }
 
       verifyZoneStatus();
     },
-    err => console.error("Erreur GPS :", err),
+    err => console.error(err),
     { enableHighAccuracy: true }
   );
+}
+
+// Générer un centre aléatoire qui englobe la souris
+function generateRandomCircleCenter(hiderLat, hiderLng, radiusMeters) {
+  const radiusInDegrees = radiusMeters / 111320;
+  const randomDist = Math.random() * (radiusInDegrees * 0.7); // 70% max du rayon pour ne pas coller au bord
+  const randomAngle = Math.random() * 2 * Math.PI;
+
+  const latOffset = randomDist * Math.cos(randomAngle);
+  const lngOffset = randomDist * Math.sin(randomAngle);
+
+  return {
+    lat: hiderLat + latOffset,
+    lng: hiderLng + lngOffset
+  };
+}
+
+// Effet "Glissement" du cercle si la souris dépasse la bordure
+function handleHiderCircleMovement(hiderLat, hiderLng) {
+  roomRef.once('value', snapshot => {
+    const data = snapshot.val();
+    if (!data) return;
+
+    if (!data.circleCenter) {
+      // Première initialisation du cercle autour de la souris
+      const center = generateRandomCircleCenter(hiderLat, hiderLng, data.circleRadius || 400);
+      roomRef.update({ circleCenter: center });
+      return;
+    }
+
+    const centerLatLng = L.latLng(data.circleCenter.lat, data.circleCenter.lng);
+    const hiderLatLng = L.latLng(hiderLat, hiderLng);
+    const distance = centerLatLng.distanceTo(hiderLatLng);
+
+    // Si la souris s'éloigne au-delà du rayon, le cercle glisse avec elle
+    if (distance > data.circleRadius) {
+      const bearing = Math.atan2(hiderLat - data.circleCenter.lat, hiderLng - data.circleCenter.lng);
+      const moveDist = (distance - data.circleRadius) / 111320;
+
+      const newCenter = {
+        lat: data.circleCenter.lat + (moveDist * Math.sin(bearing)),
+        lng: data.circleCenter.lng + (moveDist * Math.cos(bearing))
+      };
+
+      roomRef.update({ circleCenter: newCenter });
+    }
+  });
 }
 
 function startGame(roomData) {
@@ -166,20 +216,16 @@ function startGame(roomData) {
     handleChallengesUI(data);
 
     if (data.foundAlert && currentUser.role === 'hider') {
-      alert("Le chercheur indique vous avoir trouvé ! Confirmez si c'est le cas.");
+      alert("Le chercheur indique vous avoir trouvé ! Confirmez l'attrapé.");
     }
-
-    if (data.state === 'review') {
-      showReviewScreen(data);
-    }
-    if (data.state === 'podium') {
-      showPodiumScreen(data);
-    }
+    if (data.state === 'review') showReviewScreen(data);
+    if (data.state === 'podium') showPodiumScreen(data);
   });
 }
 
-// Exigence 2 : Nettoyage strict du calque cercle pour le rôle 'hider'
+// Effacement total du cercle pour la souris
 function handleMapLayers(data) {
+  // La souris (hider) NE VOIT AUCUN CERCLE
   if (currentUser.role === 'hider') {
     if (seekerCircleLayer) {
       map.removeLayer(seekerCircleLayer);
@@ -188,93 +234,107 @@ function handleMapLayers(data) {
     return;
   }
 
-  // Si chercheur (seeker) : affichage du cercle dynamique sur le chercheur
-  if (currentUser.role === 'seeker' && data.positions && data.positions.seeker) {
-    const center = [data.positions.seeker.lat, data.positions.seeker.lng];
+  // Le chercheur (seeker) voit sa carte et le cercle SEULEMENT en phase de chasse
+  if (currentUser.role === 'seeker' && data.phase === 'hunt' && data.circleCenter) {
+    const center = [data.circleCenter.lat, data.circleCenter.lng];
     if (!seekerCircleLayer) {
       seekerCircleLayer = L.circle(center, {
-        radius: data.circleRadius || 400,
+        radius: data.circleRadius || 300,
         color: '#ff4757',
-        fillOpacity: 0.15
+        fillOpacity: 0.2
       }).addTo(map);
     } else {
       seekerCircleLayer.setLatLng(center);
-      seekerCircleLayer.setRadius(data.circleRadius || 400);
+      seekerCircleLayer.setRadius(data.circleRadius || 300);
     }
   }
 }
 
-// Gestion des phases, réduction du cercle & calculs du temps
+// Horloges et logique de rétrécissement automatique
 function handleTimersAndPhases(data) {
   const elapsed = Math.floor((Date.now() - data.startTime) / 1000);
   const hideTimeSec = (data.hideDuration || 5) * 60;
 
   if (elapsed < hideTimeSec) {
-    // Phase 1 : Cachette
+    // PHASE CACHETTE
     const remaining = hideTimeSec - elapsed;
-    document.getElementById('timer-display').innerText = formatTime(remaining);
-    document.getElementById('status-text').innerText = "Phase de Cachette";
+    document.getElementById('timer-display').innerText = "Temps cachette : " + formatTime(remaining);
+    document.getElementById('status-text').innerText = "Souris : Cachez-vous !";
+    document.getElementById('shrink-timer').innerText = "Phase de traque imminente";
+
+    if (currentUser.role === 'seeker') {
+      document.getElementById('seeker-blind-overlay').style.display = 'flex';
+      document.getElementById('blind-timer').innerText = formatTime(remaining);
+    }
   } else {
-    // Phase 2 : Chasse
+    // PHASE CHASSE
+    if (currentUser.role === 'seeker') {
+      document.getElementById('seeker-blind-overlay').style.display = 'none';
+    }
+
     if (data.phase === 'hide') {
-      roomRef.update({ phase: 'hunt' });
+      // Début de la traque : passage automatique à 300 m
+      roomRef.update({ 
+        phase: 'hunt',
+        circleRadius: 300,
+        huntStartTime: Date.now()
+      });
     }
 
     const huntElapsed = elapsed - hideTimeSec;
-    document.getElementById('timer-display').innerText = formatTime(huntElapsed);
-    document.getElementById('status-text').innerText = "Traque en cours !";
+    document.getElementById('timer-display').innerText = "Survie : " + formatTime(huntElapsed);
+    document.getElementById('status-text').innerText = "Chasse en cours !";
 
-    // Réduction automatique du rayon ($50\text{ m}$ toutes les 5 min, min $50\text{ m}$)
-    const intervals = Math.floor(huntElapsed / 300);
-    const newRadius = Math.max(50, 400 - (intervals * 50));
-    if (data.circleRadius !== newRadius) {
-      roomRef.update({ circleRadius: newRadius });
+    // Rétrécissement toutes les 5 min (300s)
+    const shrinkInterval = 300;
+    const nextShrinkSeconds = shrinkInterval - (huntElapsed % shrinkInterval);
+    document.getElementById('shrink-timer').innerText = `Prochain rétrécissement (-50m) : ${formatTime(nextShrinkSeconds)}`;
+
+    const currentStep = Math.floor(huntElapsed / shrinkInterval);
+    const targetRadius = Math.max(50, 300 - (currentStep * 50));
+
+    if (data.circleRadius !== targetRadius && targetRadius >= 50) {
+      roomRef.update({ circleRadius: targetRadius });
     }
   }
 }
 
-// Exigence 3 & 4 : Hors-zone, Clignotement Orange & Plafond du Rayon
+// Vérification de zone et avertissements
 function verifyZoneStatus() {
   if (!currentPosition || currentUser.role !== 'hider' || !roomRef) return;
 
   roomRef.once('value', snapshot => {
     const data = snapshot.val();
-    if (!data || !data.positions || !data.positions.seeker) return;
+    if (!data || !data.circleCenter) return;
 
-    const seekerPos = L.latLng(data.positions.seeker.lat, data.positions.seeker.lng);
-    const hiderPos = L.latLng(currentPosition[0], currentPosition[1]);
-    const distance = seekerPos.distanceTo(hiderPos);
+    const centerLatLng = L.latLng(data.circleCenter.lat, data.circleCenter.lng);
+    const hiderLatLng = L.latLng(currentPosition[0], currentPosition[1]);
+    const distance = centerLatLng.distanceTo(hiderLatLng);
 
     const appElem = document.getElementById('app-container');
 
     if (distance > data.circleRadius) {
-      // Entrée Hors-Zone
       appElem.classList.add('screen-warning-blink');
-      document.getElementById('status-text').innerText = "⚠️ VOUS ÊTES HORS-ZONE !";
+      document.getElementById('status-text').innerText = "⚠️ VOUS ÊTES HORS-ZONE ! REJOIGNEZ LE PÉRIMÈTRE !";
 
       if (!outOfZoneStartTime) outOfZoneStartTime = Date.now();
 
-      // Règle des 5 min hors-zone
+      // Si le caché reste hors-zone + de 5 minutes : agrandissement de la zone (+50m, max 400m)
       if (Date.now() - outOfZoneStartTime > 300000) {
         if (data.circleRadius < 400) {
-          // Agrandissement (+50m) sous plafond strict de 400m
           const expanded = Math.min(400, data.circleRadius + 50);
           roomRef.update({ circleRadius: expanded });
           outOfZoneStartTime = Date.now();
-        } else {
-          // Plafond de 400m atteint : message strict sans décompte
-          document.getElementById('status-text').innerText = "⚠️ REJOIGNEZ LA ZONE IMMÉDIATEMENT !";
         }
       }
     } else {
-      // Réintégration de la Zone
       appElem.classList.remove('screen-warning-blink');
       outOfZoneStartTime = null;
     }
   });
 }
 
-// --- DÉFIS PHOTO & BOUTONS D'ACTION ---
+// --- DÉFIS PHOTO ET REVISION ---
 document.getElementById('btn-send-challenge').addEventListener('click', () => {
   const text = document.getElementById('custom-challenge-text').value;
   const pts = parseInt(document.getElementById('custom-challenge-pts').value) || 10;
@@ -292,7 +352,7 @@ function handleChallengesUI(data) {
     if (ch.status === 'pending') {
       document.getElementById('hider-challenge-desc').innerText = `Défi (${ch.pts} pts): ${ch.text}`;
     } else {
-      document.getElementById('hider-challenge-desc').innerText = "Défi soumis ! En attente du chercheur.";
+      document.getElementById('hider-challenge-desc').innerText = "Défi envoyé ! En attente d'évaluation.";
     }
   }
 }
@@ -307,9 +367,8 @@ document.getElementById('challenge-photo-input').addEventListener('change', (e) 
 
   const reader = new FileReader();
   reader.onload = function(evt) {
-    const base64Photo = evt.target.result;
     roomRef.child('challenges').push({
-      photo: base64Photo,
+      photo: evt.target.result,
       status: 'pending'
     });
     roomRef.child('activeChallenge/status').set('completed');
@@ -325,7 +384,6 @@ document.getElementById('btn-confirm-hider').addEventListener('click', () => {
   roomRef.update({ state: 'review', endTime: Date.now() });
 });
 
-// --- ÉCRAN 4 : RÉVISION DES DÉFIS ---
 function showReviewScreen(data) {
   showScreen('review-screen');
   const container = document.getElementById('photos-review-list');
@@ -344,7 +402,7 @@ function showReviewScreen(data) {
       <div class="photo-card">
         <img src="${item.photo}" alt="Preuve photo" />
         ${isSeeker && item.status === 'pending' ? `
-          <button class="btn btn-success" onclick="validatePhoto('${key}', true)">✅ Valider</button>
+          <button class="btn btn-success" onclick="validatePhoto('${key}', true)">✅ Valider (+50 pts)</button>
           <button class="btn" style="background:#e74c3c" onclick="validatePhoto('${key}', false)">❌ Rejeter</button>
         ` : `<p>Statut : ${item.status}</p>`}
       </div>
@@ -363,7 +421,6 @@ document.getElementById('btn-finish-review').addEventListener('click', () => {
   roomRef.update({ state: 'podium' });
 });
 
-// --- ÉCRAN 5 : PODIUM & RESTART ---
 function showPodiumScreen(data) {
   showScreen('podium-screen');
   const display = document.getElementById('podium-display');
@@ -374,7 +431,7 @@ function showPodiumScreen(data) {
   display.innerHTML = `
     <p style="font-size: 1.5rem; color: var(--secondary);">⏱️ Temps de survie : <strong>${formatTime(survivalSec)}</strong></p>
     <br>
-    <p>Points défis accumulés : <strong>${hiderScore} pts</strong></p>
+    <p>Score bonus défis : <strong>${hiderScore} pts</strong></p>
   `;
 }
 
@@ -387,7 +444,6 @@ document.getElementById('btn-leave-room').addEventListener('click', () => {
   location.reload();
 });
 
-// Utilitaire de formatage mm:ss
 function formatTime(seconds) {
   const m = Math.floor(seconds / 60).toString().padStart(2, '0');
   const s = (seconds % 60).toString().padStart(2, '0');
