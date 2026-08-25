@@ -1,674 +1,399 @@
-// VERSION 4.1
-
-const firebaseConfig = {
-  apiKey: "AIzaSyBcxudeQK91giQA5kzSa6wnFZzJIgODjq8",
-  authDomain: "cache-cache-draveil.firebaseapp.com",
-  databaseURL: "https://cache-cache-draveil-default-rtdb.europe-west1.firebasedatabase.app",
-  projectId: "cache-cache-draveil",
-  storageBucket: "cache-cache-draveil.firebasestorage.app",
-  messagingSenderId: "809078029731",
-  appId: "1:809078029731:web:83e384a38ce01254016e16"
-};
-
-firebase.initializeApp(firebaseConfig);
-const db = firebase.database();
-
+// --- ÉTAT GLOBAL ---
+let currentUser = { name: "", color: "#ff4757", role: "hider" };
 let roomCode = null;
-let userRole = null;
-let playerName = "Joueur";
-let userColor = "#38bdf8";
+let roomRef = null;
+let map = null, userMarker = null, seekerCircleLayer = null;
+let currentPosition = null;
+let outOfZoneStartTime = null;
 
-let map, userMarker, seekerCircle;
-let userPos = null;
-let seekerColor = "#ef4444";
-
-let circleCenter = null;
-let circleRadius = 400;
-
-let playerScore = 0;
-let activeChallengesList = {};
-let gameStartTime = null;
-let hidingDurationMinutes = 5;
-let isHidingPhaseOver = false;
-
-let survivalTimeFormatted = "00:00";
-let outOfCircleStartTime = null;
-let gameInterval = null;
-
-// CALCUL DE DISTANCE EN MÈTRES (HAVERSINE)
-function getDistanceInMeters(lat1, lon1, lat2, lon2) {
-  const R = 6371000;
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLon = (lon2 - lon1) * Math.PI / 180;
-  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-            Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
+// Naviguer entre les écrans
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  if (id === 'app-container' && map) {
+    setTimeout(() => map.invalidateSize(), 200);
+  }
 }
 
-// INITIALISATION SÉCURISÉE DES ÉVÉNEMENTS DOM
-document.addEventListener('DOMContentLoaded', () => {
-  // Sélection des couleurs
-  document.querySelectorAll('.color-btn').forEach(btn => {
-    btn.onclick = (e) => {
-      document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('selected'));
-      e.currentTarget.classList.add('selected');
-      userColor = e.currentTarget.dataset.color;
-    };
+// --- ÉCRAN 1 : FORMULAIRE & LOGIQUE DE SALON ---
+document.querySelectorAll('.color-btn').forEach(btn => {
+  btn.addEventListener('click', (e) => {
+    document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('selected'));
+    e.target.classList.add('selected');
+    currentUser.color = e.target.dataset.color;
   });
-
-  // Sélection des rôles
-  const btnHider = document.getElementById('btn-role-hider');
-  const btnSeeker = document.getElementById('btn-role-seeker');
-
-  if (btnHider) {
-    btnHider.onclick = () => {
-      userRole = 'hider';
-      updateRoleUI();
-    };
-  }
-
-  if (btnSeeker) {
-    btnSeeker.onclick = () => {
-      userRole = 'seeker';
-      updateRoleUI();
-    };
-  }
-
-  // Navigation onglets
-  document.querySelectorAll('.nav-tab').forEach(tab => {
-    tab.onclick = (e) => {
-      document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
-      document.querySelectorAll('.tab-page').forEach(p => p.classList.remove('active'));
-      
-      e.target.classList.add('active');
-      const targetTabId = e.target.dataset.tab;
-      document.getElementById(targetTabId).classList.add('active');
-
-      if (targetTabId === 'tab-map') {
-        setTimeout(() => {
-          if (map) {
-            map.invalidateSize();
-            if (userPos) map.setView(userPos, 16);
-          }
-        }, 100);
-      }
-
-      if (targetTabId === 'tab-challenges') {
-        document.getElementById('challenge-badge').style.display = 'none';
-        document.getElementById('map-notification').style.display = 'none';
-      }
-    };
-  });
-
-  // Création / Jonction de salon
-  const btnCreate = document.getElementById('btn-create-room');
-  if (btnCreate) {
-    btnCreate.onclick = () => {
-      if (!userRole) return alert("Choisis ton rôle !");
-      playerName = document.getElementById('player-name-input').value.trim() || "Joueur";
-      hidingDurationMinutes = parseInt(document.getElementById('hide-time-input').value) || 5;
-      roomCode = Math.floor(1000 + Math.random() * 9000).toString();
-      enterWaitingRoom();
-    };
-  }
-
-  const btnJoin = document.getElementById('btn-join-room');
-  if (btnJoin) {
-    btnJoin.onclick = () => {
-      if (!userRole) return alert("Choisis ton rôle !");
-      roomCode = document.getElementById('room-code-input').value.trim();
-      playerName = document.getElementById('player-name-input').value.trim() || "Joueur";
-      enterWaitingRoom();
-    };
-  }
-
-  // Bouton Prêt
-  const btnReady = document.getElementById('btn-ready');
-  if (btnReady) {
-    btnReady.onclick = () => {
-      db.ref(`rooms/${roomCode}/players/${userRole}/ready`).set(true);
-    };
-  }
-
-  // Soumission photo
-  const photoInput = document.getElementById('challenge-photo-input');
-  if (photoInput) {
-    photoInput.onchange = (e) => {
-      const file = e.target.files[0];
-      if (file && selectedChallengeIdForPhoto && activeChallengesList[selectedChallengeIdForPhoto]) {
-        const ch = activeChallengesList[selectedChallengeIdForPhoto];
-        const reader = new FileReader();
-        reader.onload = (event) => {
-          db.ref(`rooms/${roomCode}/submittedPhotos`).push({
-            challengeText: ch.text,
-            pts: ch.pts,
-            photo: event.target.result,
-            status: 'PENDING'
-          });
-
-          db.ref(`rooms/${roomCode}/challenges/${selectedChallengeIdForPhoto}`).remove();
-          alert("📸 Photo envoyée pour validation !");
-        };
-        reader.readAsDataURL(file);
-      }
-    };
-  }
-
-  // Interaction détection chercheur / confirmation caché
-  const btnFound = document.getElementById('btn-found-seeker');
-  if (btnFound) {
-    btnFound.onclick = () => {
-      db.ref(`rooms/${roomCode}/roundStatus`).set('SEEKER_CLAIMED');
-      alert("Demande envoyée au caché !");
-    };
-  }
-
-  const btnConfirm = document.getElementById('btn-confirm-hider');
-  if (btnConfirm) {
-    btnConfirm.onclick = () => {
-      db.ref(`rooms/${roomCode}/roundStatus`).set('CONFIRMED');
-    };
-  }
-
-  const btnFinishRev = document.getElementById('btn-finish-review');
-  if (btnFinishRev) {
-    btnFinishRev.onclick = () => {
-      db.ref(`rooms/${roomCode}/gameState/phase`).set('PODIUM');
-    };
-  }
-
-  // Relancer une manche
-  const btnSwap = document.getElementById('btn-swap-roles');
-  if (btnSwap) {
-    btnSwap.onclick = () => {
-      userRole = null; 
-      document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('selected'));
-      document.getElementById('btn-role-hider').classList.remove('selected');
-      document.getElementById('btn-role-seeker').classList.remove('selected');
-
-      circleCenter = null;
-      circleRadius = 400;
-      activeChallengesList = {};
-      outOfCircleStartTime = null;
-      isHidingPhaseOver = false;
-
-      if (seekerCircle && map) {
-        map.removeLayer(seekerCircle);
-        seekerCircle = null;
-      }
-
-      db.ref(`rooms/${roomCode}/challenges`).remove();
-      db.ref(`rooms/${roomCode}/circle`).remove();
-      db.ref(`rooms/${roomCode}/roundStatus`).remove();
-      db.ref(`rooms/${roomCode}/submittedPhotos`).remove();
-
-      db.ref(`rooms/${roomCode}/gameState`).set({ phase: 'WAITING' });
-
-      document.getElementById('podium-screen').style.display = 'none';
-      document.getElementById('review-screen').style.display = 'none';
-      document.getElementById('app-container').style.display = 'none';
-      document.getElementById('lobby-screen').style.display = 'flex';
-    };
-  }
-
-  const btnLeave = document.getElementById('btn-leave-room');
-  if (btnLeave) {
-    btnLeave.onclick = () => {
-      location.reload();
-    };
-  }
-
-  const btnRecenter = document.getElementById('btn-recenter');
-  if (btnRecenter) {
-    btnRecenter.onclick = () => {
-      if (userPos && map) {
-        map.setView(userPos, 16);
-        map.invalidateSize();
-      }
-    };
-  }
 });
 
-function updateRoleUI() {
-  const btnHider = document.getElementById('btn-role-hider');
-  const btnSeeker = document.getElementById('btn-role-seeker');
-  if (btnHider) btnHider.classList.toggle('selected', userRole === 'hider');
-  if (btnSeeker) btnSeeker.classList.toggle('selected', userRole === 'seeker');
-}
+document.querySelectorAll('.role-btn').forEach(btn => {
+  btn.addEventListener('click', (e) => {
+    document.querySelectorAll('.role-btn').forEach(b => b.classList.remove('selected'));
+    e.target.classList.add('selected');
+    currentUser.role = e.target.dataset.role;
+  });
+});
 
-function enterWaitingRoom() {
-  document.getElementById('lobby-screen').style.display = 'none';
-  document.getElementById('podium-screen').style.display = 'none';
-  document.getElementById('waiting-room-screen').style.display = 'flex';
-  document.getElementById('waiting-room-code').innerText = roomCode;
+document.getElementById('btn-create-room').addEventListener('click', () => {
+  currentUser.name = document.getElementById('player-name-input').value || "Joueur 1";
+  roomCode = Math.floor(1000 + Math.random() * 9000).toString();
+  roomRef = db.ref('rooms/' + roomCode);
 
-  db.ref(`rooms/${roomCode}/players/${userRole}`).set({ 
-    role: userRole,
-    name: playerName, 
-    color: userColor, 
-    ready: false,
-    score: playerScore 
+  const hideDuration = parseInt(document.getElementById('hide-time-input').value) || 5;
+
+  roomRef.set({
+    state: 'waiting',
+    hideDuration: hideDuration,
+    circleRadius: 400,
+    players: {
+      [currentUser.role]: { name: currentUser.name, color: currentUser.color, ready: false, score: 0 }
+    }
   });
 
-  db.ref(`rooms/${roomCode}/players`).on('value', (snap) => {
-    const p = snap.val();
-    if (!p) return;
-    let html = '';
-    let readyCount = 0;
-    for (let r in p) {
-      if (p[r].ready) readyCount++;
-      if (p[r].role === 'seeker' || r === 'seeker') seekerColor = p[r].color || "#ef4444";
-      const roleText = (p[r].role === 'hider' || r === 'hider') ? '🥷 Caché' : '🕵️ Chercheur';
-      html += `<div style="padding: 6px 0; border-bottom: 1px solid #f1f5f9;"><b>${p[r].name}</b> (${roleText}) - ${p[r].ready ? '✅ Prêt' : '⏳ En attente'}</div>`;
-    }
-    document.getElementById('players-status-list').innerHTML = html;
+  initWaitingRoom();
+});
 
-    if (readyCount >= 2 && userRole === 'hider') {
-      db.ref(`rooms/${roomCode}/gameState`).set({
-        phase: 'HIDING',
+document.getElementById('btn-join-room').addEventListener('click', () => {
+  currentUser.name = document.getElementById('player-name-input').value || "Joueur 2";
+  roomCode = document.getElementById('room-code-input').value;
+  if (!roomCode) return alert("Entrez un code !");
+  roomRef = db.ref('rooms/' + roomCode);
+
+  roomRef.once('value', snapshot => {
+    if (!snapshot.exists()) return alert("Salon introuvable.");
+    const data = snapshot.val();
+
+    if (data.players && data.players[currentUser.role]) {
+      currentUser.role = currentUser.role === 'hider' ? 'seeker' : 'hider';
+    }
+
+    roomRef.child('players/' + currentUser.role).set({
+      name: currentUser.name,
+      color: currentUser.color,
+      ready: false,
+      score: 0
+    });
+
+    initWaitingRoom();
+  });
+});
+
+// --- ÉCRAN 2 : SALLE D'ATTENTE ---
+function initWaitingRoom() {
+  document.getElementById('waiting-room-code').innerText = roomCode;
+  showScreen('waiting-room-screen');
+
+  roomRef.on('value', snapshot => {
+    const data = snapshot.val();
+    if (!data) return;
+
+    const list = document.getElementById('players-status-list');
+    list.innerHTML = '';
+    if (data.players) {
+      Object.keys(data.players).forEach(role => {
+        const p = data.players[role];
+        list.innerHTML += `<p><strong>${p.name}</strong> (${role === 'hider' ? 'Caché' : 'Chercheur'}) : ${p.ready ? '✅ Prêt' : '⏳ En attente'}</p>`;
+      });
+    }
+
+    if (data.state === 'playing' && !map) {
+      startGame(data);
+    }
+  });
+}
+
+document.getElementById('btn-ready').addEventListener('click', () => {
+  roomRef.child(`players/${currentUser.role}/ready`).set(true);
+  roomRef.child('players').once('value', snapshot => {
+    const players = snapshot.val();
+    if (players.hider && players.hider.ready && players.seeker && players.seeker.ready) {
+      roomRef.update({
+        state: 'playing',
         startTime: Date.now(),
-        hideDuration: hidingDurationMinutes
+        phase: 'hide'
       });
     }
   });
+});
 
-  db.ref(`rooms/${roomCode}/gameState`).on('value', (snap) => {
-    const st = snap.val();
-    if (st && (st.phase === 'HIDING' || st.phase === 'HUNTING')) {
-      gameStartTime = st.startTime;
-      hidingDurationMinutes = st.hideDuration || 5;
-      if (document.getElementById('app-container').style.display !== 'flex') {
-        startGame();
+// --- ÉCRAN 3 : CARTE, LOGIQUE GEOLOCALISATION ET ZONES ---
+function initMap() {
+  map = L.map('map').setView([0, 0], 15);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+
+  navigator.geolocation.watchPosition(
+    pos => {
+      currentPosition = [pos.coords.latitude, pos.coords.longitude];
+
+      if (!userMarker) {
+        userMarker = L.circleMarker(currentPosition, { color: currentUser.color, radius: 8, fillOpacity: 1 }).addTo(map);
+        map.setView(currentPosition, 16);
+      } else {
+        userMarker.setLatLng(currentPosition);
       }
-    }
-    if (st && st.phase === 'REVIEW') openReviewScreen();
-    if (st && st.phase === 'PODIUM') displayPodium();
-  });
+
+      // Exigence 1 : Inversion et isolation des données Firebase (pas d'écrasement)
+      if (roomRef) {
+        roomRef.child(`positions/${currentUser.role}`).set({
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude
+        });
+      }
+
+      verifyZoneStatus();
+    },
+    err => console.error("Erreur GPS :", err),
+    { enableHighAccuracy: true }
+  );
 }
 
-function startGame() {
-  document.getElementById('waiting-room-screen').style.display = 'none';
-  document.getElementById('review-screen').style.display = 'none';
-  document.getElementById('podium-screen').style.display = 'none';
-  document.getElementById('app-container').style.display = 'flex';
-
+function startGame(roomData) {
+  showScreen('app-container');
   initMap();
-  startGps();
-  listenSync();
 
-  if (userRole === 'seeker') {
-    document.getElementById('seeker-challenge-creation').style.display = 'block';
+  if (currentUser.role === 'seeker') {
+    document.getElementById('seeker-challenge-form').style.display = 'block';
     document.getElementById('btn-found-seeker').style.display = 'block';
   } else {
-    document.getElementById('seeker-challenge-creation').style.display = 'none';
-    document.getElementById('btn-found-seeker').style.display = 'none';
+    document.getElementById('hider-challenge-form').style.display = 'block';
+    document.getElementById('btn-confirm-hider').style.display = 'block';
   }
 
-  if (gameInterval) clearInterval(gameInterval);
-  gameInterval = setInterval(gameLoop, 1000);
-}
+  roomRef.on('value', snapshot => {
+    const data = snapshot.val();
+    if (!data) return;
 
-function initMap() {
-  if (map) return;
-  map = L.map('map', { zoomControl: false }).setView([48.6800, 2.4150], 16);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
-}
+    handleTimersAndPhases(data);
+    handleMapLayers(data);
+    handleChallengesUI(data);
 
-function startGps() {
-  navigator.geolocation.watchPosition((pos) => {
-    userPos = [pos.coords.latitude, pos.coords.longitude];
-    updateMarker();
-
-    if (roomCode) {
-      db.ref(`rooms/${roomCode}/positions/${userRole}`).set({ lat: userPos[0], lng: userPos[1] });
+    if (data.foundAlert && currentUser.role === 'hider') {
+      alert("Le chercheur indique vous avoir trouvé ! Confirmez si c'est le cas.");
     }
 
-    if (userRole === 'seeker') {
-      if (!circleCenter) {
-        const randomAngle = Math.random() * 2 * Math.PI;
-        const randomDist = 60 + Math.random() * 60; 
-        const initLat = userPos[0] + (randomDist / 111320) * Math.cos(randomAngle);
-        const initLng = userPos[1] + (randomDist / (111320 * Math.cos(userPos[0] * Math.PI / 180))) * Math.sin(randomAngle);
-        
-        circleCenter = [initLat, initLng];
-        db.ref(`rooms/${roomCode}/circle`).set({ 
-          lat: circleCenter[0], 
-          lng: circleCenter[1], 
-          radius: circleRadius 
-        });
-      } else {
-        const dist = getDistanceInMeters(userPos[0], userPos[1], circleCenter[0], circleCenter[1]);
-        if (dist >= circleRadius) {
-          const angle = Math.atan2(userPos[1] - circleCenter[1], userPos[0] - circleCenter[0]);
-          const newLat = userPos[0] - (circleRadius / 111320) * Math.cos(angle);
-          const newLng = userPos[1] - (circleRadius / (111320 * Math.cos(userPos[0] * Math.PI / 180))) * Math.sin(angle);
-          circleCenter = [newLat, newLng];
-          db.ref(`rooms/${roomCode}/circle`).set({ 
-            lat: circleCenter[0], 
-            lng: circleCenter[1], 
-            radius: circleRadius 
-          });
+    if (data.state === 'review') {
+      showReviewScreen(data);
+    }
+    if (data.state === 'podium') {
+      showPodiumScreen(data);
+    }
+  });
+}
+
+// Exigence 2 : Nettoyage strict du calque cercle pour le rôle 'hider'
+function handleMapLayers(data) {
+  if (currentUser.role === 'hider') {
+    if (seekerCircleLayer) {
+      map.removeLayer(seekerCircleLayer);
+      seekerCircleLayer = null;
+    }
+    return;
+  }
+
+  // Si chercheur (seeker) : affichage du cercle dynamique sur le chercheur
+  if (currentUser.role === 'seeker' && data.positions && data.positions.seeker) {
+    const center = [data.positions.seeker.lat, data.positions.seeker.lng];
+    if (!seekerCircleLayer) {
+      seekerCircleLayer = L.circle(center, {
+        radius: data.circleRadius || 400,
+        color: '#ff4757',
+        fillOpacity: 0.15
+      }).addTo(map);
+    } else {
+      seekerCircleLayer.setLatLng(center);
+      seekerCircleLayer.setRadius(data.circleRadius || 400);
+    }
+  }
+}
+
+// Gestion des phases, réduction du cercle & calculs du temps
+function handleTimersAndPhases(data) {
+  const elapsed = Math.floor((Date.now() - data.startTime) / 1000);
+  const hideTimeSec = (data.hideDuration || 5) * 60;
+
+  if (elapsed < hideTimeSec) {
+    // Phase 1 : Cachette
+    const remaining = hideTimeSec - elapsed;
+    document.getElementById('timer-display').innerText = formatTime(remaining);
+    document.getElementById('status-text').innerText = "Phase de Cachette";
+  } else {
+    // Phase 2 : Chasse
+    if (data.phase === 'hide') {
+      roomRef.update({ phase: 'hunt' });
+    }
+
+    const huntElapsed = elapsed - hideTimeSec;
+    document.getElementById('timer-display').innerText = formatTime(huntElapsed);
+    document.getElementById('status-text').innerText = "Traque en cours !";
+
+    // Réduction automatique du rayon ($50\text{ m}$ toutes les 5 min, min $50\text{ m}$)
+    const intervals = Math.floor(huntElapsed / 300);
+    const newRadius = Math.max(50, 400 - (intervals * 50));
+    if (data.circleRadius !== newRadius) {
+      roomRef.update({ circleRadius: newRadius });
+    }
+  }
+}
+
+// Exigence 3 & 4 : Hors-zone, Clignotement Orange & Plafond du Rayon
+function verifyZoneStatus() {
+  if (!currentPosition || currentUser.role !== 'hider' || !roomRef) return;
+
+  roomRef.once('value', snapshot => {
+    const data = snapshot.val();
+    if (!data || !data.positions || !data.positions.seeker) return;
+
+    const seekerPos = L.latLng(data.positions.seeker.lat, data.positions.seeker.lng);
+    const hiderPos = L.latLng(currentPosition[0], currentPosition[1]);
+    const distance = seekerPos.distanceTo(hiderPos);
+
+    const appElem = document.getElementById('app-container');
+
+    if (distance > data.circleRadius) {
+      // Entrée Hors-Zone
+      appElem.classList.add('screen-warning-blink');
+      document.getElementById('status-text').innerText = "⚠️ VOUS ÊTES HORS-ZONE !";
+
+      if (!outOfZoneStartTime) outOfZoneStartTime = Date.now();
+
+      // Règle des 5 min hors-zone
+      if (Date.now() - outOfZoneStartTime > 300000) {
+        if (data.circleRadius < 400) {
+          // Agrandissement (+50m) sous plafond strict de 400m
+          const expanded = Math.min(400, data.circleRadius + 50);
+          roomRef.update({ circleRadius: expanded });
+          outOfZoneStartTime = Date.now();
+        } else {
+          // Plafond de 400m atteint : message strict sans décompte
+          document.getElementById('status-text').innerText = "⚠️ REJOIGNEZ LA ZONE IMMÉDIATEMENT !";
         }
       }
-      renderCircle(circleCenter[0], circleCenter[1], circleRadius);
+    } else {
+      // Réintégration de la Zone
+      appElem.classList.remove('screen-warning-blink');
+      outOfZoneStartTime = null;
     }
-  }, null, { enableHighAccuracy: true });
-}
-
-function updateMarker() {
-  if (!userPos) return;
-  const icon = L.divIcon({
-    className: 'custom-dot-container',
-    html: `<div class="user-location-dot" style="--dot-color: ${userColor};"></div>`,
-    iconSize: [18, 18],
-    iconAnchor: [9, 9]
   });
-
-  if (!userMarker) userMarker = L.marker(userPos, { icon }).addTo(map);
-  else userMarker.setLatLng(userPos);
 }
 
-function renderCircle(centerLat, centerLng, radius) {
-  if (!map) return;
-  if (!seekerCircle) {
-    seekerCircle = L.circle([centerLat, centerLng], {
-      color: seekerColor,
-      fillColor: seekerColor,
-      fillOpacity: 0.15,
-      weight: 2,
-      radius: radius
-    }).addTo(map);
-  } else {
-    seekerCircle.setLatLng([centerLat, centerLng]);
-    seekerCircle.setRadius(radius);
-    seekerCircle.setStyle({ color: seekerColor, fillColor: seekerColor });
+// --- DÉFIS PHOTO & BOUTONS D'ACTION ---
+document.getElementById('btn-send-challenge').addEventListener('click', () => {
+  const text = document.getElementById('custom-challenge-text').value;
+  const pts = parseInt(document.getElementById('custom-challenge-pts').value) || 10;
+  if (!text) return;
+
+  roomRef.child('activeChallenge').set({ text, pts, status: 'pending' });
+  document.getElementById('custom-challenge-text').value = '';
+});
+
+function handleChallengesUI(data) {
+  if (!data.activeChallenge) return;
+
+  if (currentUser.role === 'hider') {
+    const ch = data.activeChallenge;
+    if (ch.status === 'pending') {
+      document.getElementById('hider-challenge-desc').innerText = `Défi (${ch.pts} pts): ${ch.text}`;
+    } else {
+      document.getElementById('hider-challenge-desc').innerText = "Défi soumis ! En attente du chercheur.";
+    }
   }
 }
 
-function listenSync() {
-  db.ref(`rooms/${roomCode}/circle`).on('value', (snap) => {
-    const c = snap.val();
-    if (c) {
-      circleCenter = [c.lat, c.lng];
-      circleRadius = c.radius || 400;
-      if (userRole === 'seeker') {
-        renderCircle(circleCenter[0], circleCenter[1], circleRadius);
-      }
-    }
-  });
+document.getElementById('btn-trigger-photo').addEventListener('click', () => {
+  document.getElementById('challenge-photo-input').click();
+});
 
-  db.ref(`rooms/${roomCode}/challenges`).on('value', (snap) => {
-    const prevCount = Object.keys(activeChallengesList || {}).length;
-    activeChallengesList = snap.val() || {};
-    const newCount = Object.keys(activeChallengesList).length;
+document.getElementById('challenge-photo-input').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
 
-    if (newCount > prevCount && userRole === 'hider') {
-      document.getElementById('challenge-badge').style.display = 'inline-block';
-      document.getElementById('map-notification').style.display = 'block';
-    }
+  const reader = new FileReader();
+  reader.onload = function(evt) {
+    const base64Photo = evt.target.result;
+    roomRef.child('challenges').push({
+      photo: base64Photo,
+      status: 'pending'
+    });
+    roomRef.child('activeChallenge/status').set('completed');
+  };
+  reader.readAsDataURL(file);
+});
 
-    renderChallengesList();
-  });
+document.getElementById('btn-found-seeker').addEventListener('click', () => {
+  roomRef.update({ foundAlert: true });
+});
 
-  db.ref(`rooms/${roomCode}/roundStatus`).on('value', (s) => {
-    const status = s.val();
-    if (status === 'SEEKER_CLAIMED' && userRole === 'hider') {
-      document.getElementById('btn-confirm-hider').style.display = 'block';
-      document.getElementById('status-text').innerText = "Le chercheur t'a trouvé ! Confirms-tu ?";
-    } else if (status === 'CONFIRMED') {
-      if (userRole === 'hider') {
-        db.ref(`rooms/${roomCode}/players/hider/survivalTime`).set(survivalTimeFormatted);
-      }
-      db.ref(`rooms/${roomCode}/gameState/phase`).set('REVIEW');
-    }
-  });
-}
+document.getElementById('btn-confirm-hider').addEventListener('click', () => {
+  roomRef.update({ state: 'review', endTime: Date.now() });
+});
 
-function renderChallengesList() {
-  const container = document.querySelector('.challenges-container');
-  const creationBox = document.getElementById('seeker-challenge-creation');
-  
-  let html = (userRole === 'seeker' && creationBox) ? creationBox.outerHTML : '';
-  const keys = Object.keys(activeChallengesList);
+// --- ÉCRAN 4 : RÉVISION DES DÉFIS ---
+function showReviewScreen(data) {
+  showScreen('review-screen');
+  const container = document.getElementById('photos-review-list');
+  container.innerHTML = '';
 
-  if (keys.length === 0) {
-    html += `
-      <div class="challenge-card">
-        <h3>📋 Défis disponibles</h3>
-        <p class="challenge-text">Aucun défi actif pour le moment.</p>
+  if (!data.challenges) {
+    container.innerHTML = '<p style="text-align:center;">Aucun défi réalisé.</p>';
+    return;
+  }
+
+  Object.keys(data.challenges).forEach(key => {
+    const item = data.challenges[key];
+    const isSeeker = currentUser.role === 'seeker';
+
+    container.innerHTML += `
+      <div class="photo-card">
+        <img src="${item.photo}" alt="Preuve photo" />
+        ${isSeeker && item.status === 'pending' ? `
+          <button class="btn btn-success" onclick="validatePhoto('${key}', true)">✅ Valider</button>
+          <button class="btn" style="background:#e74c3c" onclick="validatePhoto('${key}', false)">❌ Rejeter</button>
+        ` : `<p>Statut : ${item.status}</p>`}
       </div>
     `;
-  } else {
-    keys.forEach((key) => {
-      const ch = activeChallengesList[key];
-      html += `
-        <div class="challenge-card" id="card-${ch.id}">
-          <h3>📋 Défi (${ch.pts} pts) — Temps restant : <span id="timer-${ch.id}">10:00</span></h3>
-          <p class="challenge-text">${ch.text}</p>
-          ${userRole === 'hider' ? `
-            <button onclick="triggerPhotoUpload('${ch.id}')" class="btn-success">📷 Prendre la photo pour valider</button>
-          ` : ''}
-        </div>
-      `;
-    });
-  }
-
-  container.innerHTML = html;
-
-  const newSendBtn = document.getElementById('btn-send-challenge');
-  if (newSendBtn) {
-    newSendBtn.onclick = () => {
-      const textInput = document.getElementById('custom-challenge-text');
-      const ptsInput = document.getElementById('custom-challenge-pts');
-      const text = textInput ? textInput.value.trim() : '';
-      const pts = ptsInput ? parseInt(ptsInput.value) || 20 : 20;
-
-      if (!text) return alert("Écris d'abord un défi !");
-
-      const challengeId = 'ch_' + Date.now();
-      db.ref(`rooms/${roomCode}/challenges/${challengeId}`).set({
-        id: challengeId,
-        text: text,
-        pts: pts,
-        endTime: Date.now() + (10 * 60 * 1000)
-      });
-      if (textInput) textInput.value = '';
-    };
-  }
-}
-
-let selectedChallengeIdForPhoto = null;
-
-window.triggerPhotoUpload = function(challengeId) {
-  selectedChallengeIdForPhoto = challengeId;
-  document.getElementById('challenge-photo-input').click();
-};
-
-function openReviewScreen() {
-  document.getElementById('app-container').style.display = 'none';
-  document.getElementById('review-screen').style.display = 'flex';
-
-  db.ref(`rooms/${roomCode}/submittedPhotos`).once('value', (snap) => {
-    const photos = snap.val();
-    const container = document.getElementById('photos-review-list');
-
-    if (!photos) {
-      container.innerHTML = "<p>Aucune photo soumise pendant cette manche.</p>";
-      return;
-    }
-
-    let html = '';
-    for (let key in photos) {
-      const p = photos[key];
-      html += `
-        <div class="challenge-card" style="margin-bottom:10px;">
-          <p><b>${p.challengeText}</b> (${p.pts} pts)</p>
-          <img src="${p.photo}" style="width:100%; border-radius:8px; margin:8px 0;">
-          ${userRole === 'seeker' ? `
-            <div style="display:flex; gap:8px;">
-              <button onclick="reviewPhoto('${key}', true, ${p.pts})" class="btn-success">✅ Valider (+${p.pts} pts)</button>
-              <button onclick="reviewPhoto('${key}', false, 0)" class="btn-danger">❌ Refuser</button>
-            </div>
-          ` : `<p style="font-size:0.85rem; color:#64748b;">En attente de validation du chercheur...</p>`}
-        </div>
-      `;
-    }
-    container.innerHTML = html;
   });
 }
 
-window.reviewPhoto = function(photoKey, accept, pts) {
-  if (accept) {
-    db.ref(`rooms/${roomCode}/players/hider/score`).transaction((currentScore) => {
-      return (currentScore || 0) + pts;
-    });
+function validatePhoto(challengeKey, isValid) {
+  if (isValid) {
+    roomRef.child('players/hider/score').transaction(sc => (sc || 0) + 50);
   }
-  db.ref(`rooms/${roomCode}/submittedPhotos/${photoKey}`).remove();
-  openReviewScreen();
-};
-
-function displayPodium() {
-  document.getElementById('review-screen').style.display = 'none';
-  document.getElementById('app-container').style.display = 'none';
-  document.getElementById('podium-screen').style.display = 'flex';
-
-  db.ref(`rooms/${roomCode}/players`).once('value', (snap) => {
-    const players = snap.val();
-    let playersList = [];
-
-    for (let r in players) {
-      playersList.push({ role: r, ...players[r] });
-    }
-
-    playersList.sort((a, b) => (b.score || 0) - (a.score || 0));
-
-    let podiumHtml = '';
-    playersList.forEach((p, index) => {
-      const medal = index === 0 ? '🥇' : '🥈';
-      const rankClass = index === 0 ? 'first' : 'second';
-      const survivalInfo = p.role === 'hider' && p.survivalTime ? ` — ⏱️ <b>${p.survivalTime}</b>` : '';
-
-      podiumHtml += `
-        <div class="podium-item ${rankClass}">
-          <div>
-            <span>${medal}</span>
-            <b>${p.name}</b> (${p.role === 'hider' ? '🥷 Caché' : '🕵️ Chercheur'})
-            ${survivalInfo}
-          </div>
-          <b>${p.score || 0} pts</b>
-        </div>
-      `;
-    });
-
-    document.getElementById('podium-display').innerHTML = podiumHtml;
-  });
+  roomRef.child(`challenges/${challengeKey}/status`).set(isValid ? 'validated' : 'rejected');
 }
 
-function gameLoop() {
-  const now = Date.now();
+document.getElementById('btn-finish-review').addEventListener('click', () => {
+  roomRef.update({ state: 'podium' });
+});
 
-  if (gameStartTime) {
-    const hideDurationMs = hidingDurationMinutes * 60 * 1000;
-    const hideEndTime = gameStartTime + hideDurationMs;
-    const remainingMs = hideEndTime - now;
+// --- ÉCRAN 5 : PODIUM & RESTART ---
+function showPodiumScreen(data) {
+  showScreen('podium-screen');
+  const display = document.getElementById('podium-display');
 
-    if (remainingMs > 0) {
-      isHidingPhaseOver = false;
-      circleRadius = 400;
-      const totalSec = Math.floor(remainingMs / 1000);
-      const m = String(Math.floor(totalSec / 60)).padStart(2, '0');
-      const s = String(totalSec % 60).padStart(2, '0');
+  const survivalSec = Math.floor(((data.endTime || Date.now()) - data.startTime) / 1000);
+  const hiderScore = (data.players && data.players.hider) ? data.players.hider.score : 0;
 
-      document.getElementById('timer-display').innerText = `${m}:${s}`;
-      
-      if (userRole === 'hider') {
-        document.getElementById('status-text').innerText = `Le caché se positionne... Zone active dans ${m}:${s}`;
-      } else {
-        document.getElementById('status-text').innerText = `Cache-toi vite ! Zone active dans ${m}:${s}`;
-      }
-    } else {
-      const elapsedMs = now - hideEndTime;
-      const elapsedMinutes = Math.floor(elapsedMs / (60 * 1000));
-
-      if (!isHidingPhaseOver) {
-        isHidingPhaseOver = true;
-        circleRadius = 300; 
-        updateCircleRadiusInDb();
-      }
-
-      const totalSec = Math.floor(elapsedMs / 1000);
-      const m = String(Math.floor(totalSec / 60)).padStart(2, '0');
-      const s = String(totalSec % 60).padStart(2, '0');
-      survivalTimeFormatted = `${m}:${s}`;
-      document.getElementById('timer-display').innerText = survivalTimeFormatted;
-
-      if (userRole === 'seeker') {
-        document.getElementById('status-text').innerText = `La chasse est lancée ! Survis le plus longtemps possible.`;
-      } else if (userRole === 'hider') {
-        if (userPos && circleCenter) {
-          const dist = getDistanceInMeters(userPos[0], userPos[1], circleCenter[0], circleCenter[1]);
-          const isOutside = dist > circleRadius;
-
-          if (isOutside) {
-            if (!outOfCircleStartTime) outOfCircleStartTime = now;
-            const outsideTimeMs = now - outOfCircleStartTime;
-            const outsideSecRemaining = Math.max(0, (5 * 60 * 1000) - outsideTimeMs);
-            const mOut = String(Math.floor(outsideSecRemaining / 60000)).padStart(2, '0');
-            const sOut = String(Math.floor((outsideSecRemaining % 60000) / 1000)).padStart(2, '0');
-
-            document.getElementById('status-text').innerText = `⚠️ HORS ZONE ! Agrandissement (+50m) dans ${mOut}:${sOut}`;
-
-            if (outsideTimeMs >= 5 * 60 * 1000) {
-              circleRadius += 50;
-              outOfCircleStartTime = now;
-              updateCircleRadiusInDb();
-            }
-          } else {
-            outOfCircleStartTime = null;
-
-            const shrinkSteps = Math.floor(elapsedMinutes / 5);
-            const targetRadius = Math.max(50, 300 - (shrinkSteps * 50));
-
-            if (circleRadius > targetRadius) {
-              circleRadius = targetRadius;
-              updateCircleRadiusInDb();
-            }
-
-            const nextShrinkMs = ((shrinkSteps + 1) * 5 * 60 * 1000) - elapsedMs;
-            const nextSec = Math.max(0, Math.floor(nextShrinkMs / 1000));
-            const mNext = String(Math.floor(nextSec / 60)).padStart(2, '0');
-            const sNext = String(nextSec % 60).padStart(2, '0');
-
-            document.getElementById('status-text').innerText = `Reste dans le cercle ! Rétrécissement (-50m) dans ${mNext}:${sNext}`;
-          }
-        }
-      }
-    }
-  }
-
-  for (let id in activeChallengesList) {
-    const ch = activeChallengesList[id];
-    const rem = Math.floor((ch.endTime - now) / 1000);
-
-    if (rem <= 0) {
-      if (userRole === 'seeker') {
-        db.ref(`rooms/${roomCode}/challenges/${id}`).remove();
-      }
-    } else {
-      const timerElem = document.getElementById(`timer-${id}`);
-      if (timerElem) {
-        const m = String(Math.floor(rem / 60)).padStart(2, '0');
-        const s = String(rem % 60).padStart(2, '0');
-        timerElem.innerText = `${m}:${s}`;
-      }
-    }
-  }
+  display.innerHTML = `
+    <p style="font-size: 1.5rem; color: var(--secondary);">⏱️ Temps de survie : <strong>${formatTime(survivalSec)}</strong></p>
+    <br>
+    <p>Points défis accumulés : <strong>${hiderScore} pts</strong></p>
+  `;
 }
 
-function updateCircleRadiusInDb() {
-  if (userRole === 'seeker' && roomCode) {
-    db.ref(`rooms/${roomCode}/circle/radius`).set(circleRadius);
-  }
+document.getElementById('btn-swap-roles').addEventListener('click', () => {
+  currentUser.role = currentUser.role === 'hider' ? 'seeker' : 'hider';
+  location.reload();
+});
+
+document.getElementById('btn-leave-room').addEventListener('click', () => {
+  location.reload();
+});
+
+// Utilitaire de formatage mm:ss
+function formatTime(seconds) {
+  const m = Math.floor(seconds / 60).toString().padStart(2, '0');
+  const s = (seconds % 60).toString().padStart(2, '0');
+  return `${m}:${s}`;
 }
+
+document.getElementById('btn-recenter').addEventListener('click', () => {
+  if (currentPosition && map) map.setView(currentPosition, 17);
+});
