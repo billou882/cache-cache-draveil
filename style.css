@@ -141,19 +141,26 @@ input {
   left: 10px; 
   right: 10px; 
   z-index: 1000; 
-  background: rgba(30, 30, 30, 0.9); 
-  padding: 10px 15px; 
+  background: rgba(30, 30, 30, 0.95); 
+  padding: 12px 15px; 
   border-radius: 12px; 
   display: flex; 
   justify-content: space-between; 
   align-items: center; 
   backdrop-filter: blur(5px); 
+  border: 1px solid #333;
 }
 
 #timer-display { 
   font-size: 1.2rem; 
   font-weight: bold; 
   color: var(--primary); 
+}
+
+#shrink-timer {
+  font-size: 0.8rem;
+  color: var(--secondary);
+  font-weight: bold;
 }
 
 #status-text { 
@@ -167,32 +174,46 @@ input {
   z-index: 1; 
 }
 
+/* MARGE DE SÉCURITÉ MOBILE (Rehaussée) */
 #map-controls { 
   position: absolute; 
-  bottom: 20px; 
-  left: 10px; 
-  right: 10px; 
+  bottom: calc(30px + env(safe-area-inset-bottom, 15px)); 
+  left: 15px; 
+  right: 15px; 
   z-index: 1000; 
   display: flex; 
   flex-direction: column; 
-  gap: 10px; 
+  gap: 12px; 
 }
 
-/* Onglet Défis */
+/* Écran d'attente aveugle pour le chercheur pendant la cachette */
+#seeker-blind-overlay {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: #000;
+  z-index: 2000;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  padding: 20px;
+}
+
 #tab-challenges { 
   background: rgba(30, 30, 30, 0.95); 
   padding: 15px; 
   border-radius: 12px; 
+  border: 1px solid #333;
 }
 
-/* Alerte visuelle d'urgence (Caché hors zone) */
 .screen-warning-blink {
   animation: blink-orange 1s infinite alternate;
 }
 
 @keyframes blink-orange {
   0% { box-shadow: inset 0 0 0px var(--warning); }
-  100% { box-shadow: inset 0 0 35px var(--warning); }
+  100% { box-shadow: inset 0 0 45px var(--warning); }
 }
 
 .photo-card { 
