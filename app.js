@@ -1,2627 +1,687 @@
-import {
-  db,
-  storage,
-  connectFirebase
-} from "./firebase-config.js";
-
-import {
-  ref,
-  set,
-  update,
-  get,
-  onValue,
-  onDisconnect,
-  push,
-  runTransaction
-} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-database.js";
-
-import {
-  ref as storageRef,
-  uploadBytes,
-  getDownloadURL
-} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-storage.js";
-
-
-/* ========================================================= */
-/* ÉTAT GLOBAL */
-/* ========================================================= */
-
-const state = {
-
-  uid: null,
-
-  roomCode: null,
-
-  role: null,
-
-  nickname: null,
-
-  color: "#2563eb",
-
-  room: null,
-
-  map: null,
-
-  marker: null,
-
-  circle: null,
-
-  watchId: null,
-
-  position: null,
-
-  roomListener: null,
-
-  challengeListener: null,
-
-  clock: null,
-
-  outSince: null,
-
-  wasOutOfZone: false
-
+// --- CONFIGURATION FIREBASE ---
+const firebaseConfig = {
+  apiKey: "AIzaSyBcxudeQK91giQA5kzSa6wnFZzJIgODjq8",
+  authDomain: "cache-cache-draveil.firebaseapp.com",
+  databaseURL: "https://cache-cache-draveil-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId: "cache-cache-draveil",
+  storageBucket: "cache-cache-draveil.firebasestorage.app",
+  messagingSenderId: "809078029731",
+  appId: "1:809078029731:web:83e384a38ce01254016e16"
 };
 
+if (!firebase.apps.length) {
+  firebase.initializeApp(firebaseConfig);
+}
+const db = firebase.database();
 
-/* ========================================================= */
-/* OUTILS */
-/* ========================================================= */
+// --- ÉTAT DU JEU ---
+let roomCode = null;
+let myRole = null; // 'mouse' (Souris) ou 'cat' (Chat)
+let myName = "Joueur";
+let myColor = "#38bdf8";
 
-const $ = id => document.getElementById(id);
+let map = null;
+let myMarker = null;
+let zoneCircleLayer = null;
+let currentPos = null;
 
+const RADIUS_MAX = 400;
+const RADIUS_MIN = 50;
+let circleCenter = null;
+let circleRadius = RADIUS_MAX;
 
-function showScreen(id) {
+let gameStartTime = null;
+let hideDurationMinutes = 5;
+let isHidingPhase = true;
 
-  document
-    .querySelectorAll(".screen")
-    .forEach(screen => {
-      screen.classList.remove("active");
-    });
+let outOfZoneStartTime = null;
+let gameLoopTimer = null;
+let activeChallenges = {};
+let currentChallengeForPhoto = null;
 
-  $(id).classList.add("active");
-
+// --- CALCULS GÉOGRAPHIQUES ---
+function getDistanceInMeters(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+            Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
 }
 
-
-function showError(message) {
-
-  const element = $("errorMessage");
-
-  element.textContent = message;
-
-  element.classList.remove("hidden");
-
-  setTimeout(() => {
-    element.classList.add("hidden");
-  }, 6000);
-
-}
-
-
-function formatTime(milliseconds) {
-
-  let seconds =
-    Math.max(0, Math.floor(milliseconds / 1000));
-
-  const hours =
-    Math.floor(seconds / 3600);
-
-  seconds %= 3600;
-
-  const minutes =
-    Math.floor(seconds / 60);
-
-  seconds %= 60;
-
-  if (hours > 0) {
-
-    return (
-      String(hours).padStart(2, "0") +
-      ":" +
-      String(minutes).padStart(2, "0") +
-      ":" +
-      String(seconds).padStart(2, "0")
-    );
-
-  }
-
-  return (
-    String(minutes).padStart(2, "0") +
-    ":" +
-    String(seconds).padStart(2, "0")
-  );
-
-}
-
-
-function randomRoomCode() {
-
-  return Math
-    .random()
-    .toString(36)
-    .substring(2, 8)
-    .toUpperCase();
-
-}
-
-
-function escapeHTML(value) {
-
-  return String(value || "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
-
-}
-
-
-function distanceMeters(a, b) {
-
-  const earthRadius = 6371000;
-
-  const lat1 =
-    a.lat * Math.PI / 180;
-
-  const lat2 =
-    b.lat * Math.PI / 180;
-
-  const dLat =
-    (b.lat - a.lat) *
-    Math.PI / 180;
-
-  const dLng =
-    (b.lng - a.lng) *
-    Math.PI / 180;
-
-  const x =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(lat1) *
-    Math.cos(lat2) *
-    Math.sin(dLng / 2) ** 2;
-
-  return (
-    2 *
-    earthRadius *
-    Math.asin(Math.sqrt(x))
-  );
-
-}
-
-
-/* ========================================================= */
-/* FIREBASE */
-/* ========================================================= */
-
-async function initializeFirebase() {
-
-  const user =
-    await connectFirebase();
-
-  state.uid =
-    user.uid;
-
-}
-
-
-/* ========================================================= */
-/* CRÉATION PARTIE */
-/* ========================================================= */
-
-async function createRoom() {
-
-  try {
-
-    validateHome();
-
-    await initializeFirebase();
-
-    const roomCode =
-      randomRoomCode();
-
-    const hideMinutes =
-      Number($("hideTime").value);
-
-    const roomData = {
-
-      status: "lobby",
-
-      phase: "lobby",
-
-      createdAt: Date.now(),
-
-      hostUid: state.uid,
-
-      settings: {
-
-        hideMinutes
-
-      },
-
-      players: {
-
-        [state.role]: {
-
-          uid: state.uid,
-
-          nickname: state.nickname,
-
-          color: state.color,
-
-          ready: false,
-
-          online: true,
-
-          score: 0,
-
-          position: null
-
-        }
-
-      },
-
-      game: {
-
-        hideEndAt: null,
-
-        huntStartedAt: null,
-
-        survivalMs: null,
-
-        circle: {
-
-          center: null,
-
-          radius: 300
-
-        },
-
-        capture: {
-
-          declaredBy: null,
-
-          declaredAt: null,
-
-          confirmed: false
-
-        }
-
-      },
-
-      challenges: {}
-
+// --- INITIALISATION DES ÉVÉNEMENTS DOM ---
+document.addEventListener('DOMContentLoaded', () => {
+  initRoleButtons();
+  initColorButtons();
+  initNavigation();
+  initLobbyEvents();
+  initGameEvents();
+});
+
+function initRoleButtons() {
+  const btnMouse = document.getElementById('btn-role-hider') || document.getElementById('btn-role-mouse');
+  const btnCat = document.getElementById('btn-role-seeker') || document.getElementById('btn-role-cat');
+
+  if (btnMouse) {
+    btnMouse.onclick = () => {
+      myRole = 'mouse';
+      if (btnMouse) btnMouse.classList.add('selected');
+      if (btnCat) btnCat.classList.remove('selected');
     };
-
-
-    await set(
-      ref(db, `rooms/${roomCode}`),
-      roomData
-    );
-
-
-    await onDisconnect(
-      ref(
-        db,
-        `rooms/${roomCode}/players/${state.role}/online`
-      )
-    ).set(false);
-
-
-    state.roomCode =
-      roomCode;
-
-    subscribeRoom();
-
-    showScreen("lobby");
-
   }
-
-  catch (error) {
-
-    console.error(error);
-
-    showError(error.message);
-
+  if (btnCat) {
+    btnCat.onclick = () => {
+      myRole = 'cat';
+      if (btnCat) btnCat.classList.add('selected');
+      if (btnMouse) btnMouse.classList.remove('selected');
+    };
   }
-
 }
 
+function initColorButtons() {
+  document.querySelectorAll('.color-btn').forEach(btn => {
+    btn.onclick = (e) => {
+      document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('selected'));
+      e.currentTarget.classList.add('selected');
+      myColor = e.currentTarget.dataset.color || "#38bdf8";
+    };
+  });
+}
 
-/* ========================================================= */
-/* REJOINDRE */
-/* ========================================================= */
+function initNavigation() {
+  document.querySelectorAll('.nav-tab').forEach(tab => {
+    tab.onclick = (e) => {
+      document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-page').forEach(p => p.classList.remove('active'));
 
-async function joinRoom() {
+      e.target.classList.add('active');
+      const pageId = e.target.dataset.tab;
+      const page = document.getElementById(pageId);
+      if (page) page.classList.add('active');
 
-  try {
-
-    validateHome();
-
-    await initializeFirebase();
-
-    const roomCode =
-      $("roomCode")
-        .value
-        .trim()
-        .toUpperCase();
-
-
-    if (!roomCode) {
-
-      throw new Error(
-        "Entre le code de la partie."
-      );
-
-    }
-
-
-    const snapshot =
-      await get(
-        ref(db, `rooms/${roomCode}`)
-      );
-
-
-    if (!snapshot.exists()) {
-
-      throw new Error(
-        "Cette partie n'existe pas."
-      );
-
-    }
-
-
-    const room =
-      snapshot.val();
-
-
-    if (room.phase !== "lobby") {
-
-      throw new Error(
-        "Cette partie a déjà commencé."
-      );
-
-    }
-
-
-    if (room.players?.[state.role]) {
-
-      throw new Error(
-        "Ce rôle est déjà pris."
-      );
-
-    }
-
-
-    await update(
-      ref(db, `rooms/${roomCode}`),
-      {
-
-        [`players/${state.role}`]: {
-
-          uid: state.uid,
-
-          nickname: state.nickname,
-
-          color: state.color,
-
-          ready: false,
-
-          online: true,
-
-          score: 0,
-
-          position: null
-
-        }
-
+      if (pageId === 'tab-map' && map) {
+        setTimeout(() => {
+          map.invalidateSize();
+          if (currentPos) map.setView(currentPos, 16);
+        }, 200);
       }
-    );
-
-
-    await onDisconnect(
-      ref(
-        db,
-        `rooms/${roomCode}/players/${state.role}/online`
-      )
-    ).set(false);
-
-
-    state.roomCode =
-      roomCode;
-
-    subscribeRoom();
-
-    showScreen("lobby");
-
-  }
-
-  catch (error) {
-
-    console.error(error);
-
-    showError(error.message);
-
-  }
-
+    };
+  });
 }
 
-
-/* ========================================================= */
-/* VALIDATION ACCUEIL */
-/* ========================================================= */
-
-function validateHome() {
-
-  const nickname =
-    $("nickname")
-      .value
-      .trim();
-
-
-  if (!nickname) {
-
-    throw new Error(
-      "Choisis un pseudonyme."
-    );
-
+function initLobbyEvents() {
+  const btnCreate = document.getElementById('btn-create-room');
+  if (btnCreate) {
+    btnCreate.onclick = () => {
+      if (!myRole) return alert("Choisissez un rôle (Chat ou Souris).");
+      myName = (document.getElementById('player-name-input')?.value || "Joueur").trim();
+      hideDurationMinutes = parseInt(document.getElementById('hide-time-input')?.value) || 5;
+      roomCode = Math.floor(1000 + Math.random() * 9000).toString();
+      enterWaitingRoom();
+    };
   }
 
-
-  if (!navigator.geolocation) {
-
-    throw new Error(
-      "La géolocalisation n'est pas disponible."
-    );
-
+  const btnJoin = document.getElementById('btn-join-room');
+  if (btnJoin) {
+    btnJoin.onclick = () => {
+      if (!myRole) return alert("Choisissez un rôle (Chat ou Souris).");
+      roomCode = (document.getElementById('room-code-input')?.value || "").trim();
+      if (!roomCode) return alert("Entrez un code de salon valide.");
+      myName = (document.getElementById('player-name-input')?.value || "Joueur").trim();
+      enterWaitingRoom();
+    };
   }
 
-
-  state.nickname =
-    nickname;
-
-  state.role =
-    $("role").value;
-
-  state.color =
-    $("markerColor").value;
-
+  const btnReady = document.getElementById('btn-ready');
+  if (btnReady) {
+    btnReady.onclick = () => {
+      db.ref(`rooms/${roomCode}/players/${myRole}/ready`).set(true);
+    };
+  }
 }
 
-
-/* ========================================================= */
-/* ÉCOUTE SALON */
-/* ========================================================= */
-
-function subscribeRoom() {
-
-  if (state.roomListener) {
-
-    state.roomListener();
-
-  }
-
-
-  state.roomListener =
-    onValue(
-      ref(db, `rooms/${state.roomCode}`),
-      snapshot => {
-
-        if (!snapshot.exists()) {
-
-          goHome();
-
-          return;
-
-        }
-
-
-        state.room =
-          snapshot.val();
-
-
-        renderLobby();
-
-        handlePhase();
-
-      }
-    );
-
-}
-
-
-/* ========================================================= */
-/* LOBBY */
-/* ========================================================= */
-
-function renderLobby() {
-
-  if (!state.room) return;
-
-
-  $("displayRoomCode")
-    .textContent =
-    state.roomCode;
-
-
-  const chat =
-    state.room.players?.chat;
-
-  const mouse =
-    state.room.players?.mouse;
-
-
-  $("chatPlayerName")
-    .textContent =
-    chat?.nickname ||
-    "En attente...";
-
-
-  $("mousePlayerName")
-    .textContent =
-    mouse?.nickname ||
-    "En attente...";
-
-
-  $("chatReady")
-    .textContent =
-    chat?.ready
-      ? "✓ Prêt"
-      : "En attente";
-
-
-  $("mouseReady")
-    .textContent =
-    mouse?.ready
-      ? "✓ Prêt"
-      : "En attente";
-
-
-  const me =
-    state.room.players?.[state.role];
-
-
-  $("readyButton")
-    .textContent =
-    me?.ready
-      ? "❌ Je ne suis plus prêt"
-      : "✅ Je suis prêt";
-
-}
-
-
-/* ========================================================= */
-/* READY */
-/* ========================================================= */
-
-async function toggleReady() {
-
-  if (!state.room) return;
-
-
-  const me =
-    state.room.players?.[state.role];
-
-
-  if (!me) return;
-
-
-  await update(
-    ref(
-      db,
-      `rooms/${state.roomCode}/players/${state.role}`
-    ),
-    {
-      ready: !me.ready
-    }
-  );
-
-
-  const snapshot =
-    await get(
-      ref(db, `rooms/${state.roomCode}`)
-    );
-
-
-  const room =
-    snapshot.val();
-
-
-  const bothReady =
-    room.players?.chat?.ready &&
-    room.players?.mouse?.ready;
-
-
-  if (
-    bothReady &&
-    room.phase === "lobby"
-  ) {
-
-    const hideMinutes =
-      Number(room.settings.hideMinutes);
-
-
-    const hideEnd =
-      Date.now() +
-      hideMinutes * 60 * 1000;
-
-
-    await update(
-      ref(db, `rooms/${state.roomCode}`),
-      {
-
-        phase: "hide",
-
-        status: "playing",
-
-        "game/hideEndAt":
-          hideEnd,
-
-        "game/huntStartedAt":
-          null,
-
-        "game/circle/center":
-          null,
-
-        "game/circle/radius":
-          300
-
-      }
-    );
-
-  }
-
-}
-
-
-/* ========================================================= */
-/* PHASE */
-/* ========================================================= */
-
-function handlePhase() {
-
-  if (!state.room) return;
-
-
-  const phase =
-    state.room.phase;
-
-
-  if (
-    phase === "hide" ||
-    phase === "hunt" ||
-    phase === "review"
-  ) {
-
-    startGame();
-
-  }
-
-
-  if (
-    phase === "finished"
-  ) {
-
-    renderResult();
-
-  }
-
-}
-
-
-/* ========================================================= */
-/* INITIALISATION CARTE */
-/* ========================================================= */
-
-function startGame() {
-
-  showScreen("game");
-
-
-  $("gameRoomCode")
-    .textContent =
-    state.roomCode;
-
-
-  $("roleBadge")
-    .textContent =
-    state.role === "chat"
-      ? "🐱 CHAT"
-      : "🐭 SOURIS";
-
-
-  if (!state.map) {
-
-    state.map =
-      L.map("map", {
-        zoomControl: true
-      });
-
-
-    state.map.setView(
-      [48.7, 2.45],
-      15
-    );
-
-
-    L.tileLayer(
-      "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-      {
-        maxZoom: 19,
-
-        attribution:
-          "© OpenStreetMap contributors"
-      }
-    ).addTo(state.map);
-
-  }
-
-
-  startGPS();
-
-  subscribeChallenges();
-
-  updateMap();
-
-  startClock();
-
-}
-
-
-/* ========================================================= */
-/* GPS */
-/* ========================================================= */
-
-function startGPS() {
-
-  if (state.watchId !== null) {
-    return;
-  }
-
-
-  state.watchId =
-    navigator.geolocation.watchPosition(
-
-      position => {
-
-        state.position = {
-
-          lat:
-            position.coords.latitude,
-
-          lng:
-            position.coords.longitude,
-
-          accuracy:
-            position.coords.accuracy
-
+function initGameEvents() {
+  const photoInput = document.getElementById('challenge-photo-input');
+  if (photoInput) {
+    photoInput.onchange = (e) => {
+      const file = e.target.files[0];
+      if (file && currentChallengeForPhoto && activeChallenges[currentChallengeForPhoto]) {
+        const ch = activeChallenges[currentChallengeForPhoto];
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          db.ref(`rooms/${roomCode}/submittedPhotos`).push({
+            challengeText: ch.text,
+            pts: ch.pts,
+            photo: ev.target.result
+          });
+          db.ref(`rooms/${roomCode}/challenges/${currentChallengeForPhoto}`).remove();
+          alert("📸 Photo envoyée au Chat !");
         };
-
-
-        updateMarker();
-
-
-        const path =
-          `rooms/${state.roomCode}/players/${state.role}/position`;
-
-
-        update(
-          ref(db, path),
-          state.position
-        );
-
-
-        checkZone();
-
-      },
-
-
-      error => {
-
-        console.error(
-          "Erreur GPS:",
-          error
-        );
-
-      },
-
-      {
-
-        enableHighAccuracy: true,
-
-        maximumAge: 2000,
-
-        timeout: 15000
-
+        reader.readAsDataURL(file);
       }
+    };
+  }
 
-    );
+  const btnFound = document.getElementById('btn-found-seeker');
+  if (btnFound) {
+    btnFound.onclick = () => {
+      db.ref(`rooms/${roomCode}/roundStatus`).set('CAT_CLAIMED');
+      alert("Alerte envoyée à la Souris.");
+    };
+  }
 
+  const btnConfirm = document.getElementById('btn-confirm-hider');
+  if (btnConfirm) {
+    btnConfirm.onclick = () => {
+      db.ref(`rooms/${roomCode}/roundStatus`).set('CONFIRMED');
+    };
+  }
+
+  const btnFinish = document.getElementById('btn-finish-review');
+  if (btnFinish) {
+    btnFinish.onclick = () => {
+      db.ref(`rooms/${roomCode}/gameState/phase`).set('PODIUM');
+    };
+  }
+
+  const btnSwap = document.getElementById('btn-swap-roles');
+  if (btnSwap) btnSwap.onclick = resetGame;
+
+  const btnLeave = document.getElementById('btn-leave-room');
+  if (btnLeave) btnLeave.onclick = () => location.reload();
+
+  const btnRecenter = document.getElementById('btn-recenter');
+  if (btnRecenter) {
+    btnRecenter.onclick = () => {
+      if (currentPos && map) map.setView(currentPos, 16);
+    };
+  }
 }
 
-
-/* ========================================================= */
-/* MARQUEUR */
-/* ========================================================= */
-
-function updateMarker() {
-
-  if (
-    !state.position ||
-    !state.map
-  ) {
-
-    return;
-
-  }
-
-
-  const icon =
-    L.divIcon({
-
-      className: "",
-
-      html:
-        `<div
-          class="player-marker"
-          style="background:${state.color}"
-        ></div>`,
-
-      iconSize: [28, 28],
-
-      iconAnchor: [14, 28]
-
-    });
-
-
-  if (!state.marker) {
-
-    state.marker =
-      L.marker(
-        [
-          state.position.lat,
-          state.position.lng
-        ],
-        { icon }
-      )
-      .addTo(state.map);
-
-  }
-
-  else {
-
-    state.marker.setLatLng([
-      state.position.lat,
-      state.position.lng
-    ]);
-
-  }
-
-}
-
-
-/* ========================================================= */
-/* CARTE SELON PHASE */
-/* ========================================================= */
-
-function updateMap() {
-
-  const phase =
-    state.room?.phase;
-
-
-  $("hideOverlay")
-    .classList.toggle(
-      "hidden",
-      phase !== "hide"
-    );
-
-
-  if (phase === "hide") {
-
-    $("phaseText")
-      .textContent =
-      "CACHE-TTE";
-
-
-    if (state.role === "chat") {
-
-      if (state.marker) {
-
-        state.map.removeLayer(
-          state.marker
-        );
-
-        state.marker = null;
-
-      }
-
-
-      if (state.circle) {
-
-        state.map.removeLayer(
-          state.circle
-        );
-
-        state.circle = null;
-
-      }
-
-    }
-
-  }
-
-
-  if (phase === "hunt") {
-
-    $("phaseText")
-      .textContent =
-      "CHASSE";
-
-
-    if (state.role === "chat") {
-
-      updateCircle();
-
-    }
-
-  }
-
-
-  if (phase === "review") {
-
-    $("phaseText")
-      .textContent =
-      "RÉVISION";
-
-  }
-
-}
-
-
-/* ========================================================= */
-/* CERCLE CHAT */
-/* ========================================================= */
-
-function updateCircle() {
-
-  if (
-    state.role !== "chat" ||
-    state.room?.phase !== "hunt"
-  ) {
-
-    return;
-
-  }
-
-
-  const circle =
-    state.room.game?.circle;
-
-
-  if (
-    !circle?.center
-  ) {
-
-    return;
-
-  }
-
-
-  if (!state.circle) {
-
-    state.circle =
-      L.circle(
-
-        [
-          circle.center.lat,
-          circle.center.lng
-        ],
-
-        {
-
-          radius:
-            circle.radius,
-
-          color:
-            "#ef4444",
-
-          fillOpacity:
-            0.12,
-
-          weight:
-            4
-
-        }
-
-      ).addTo(state.map);
-
-  }
-
-  else {
-
-    state.circle
-      .setLatLng([
-        circle.center.lat,
-        circle.center.lng
-      ])
-      .setRadius(
-        circle.radius
-      );
-
-  }
-
-}
-
-
-/* ========================================================= */
-/* DÉBUT CHASSE */
-/* ========================================================= */
-
-async function startHunt() {
-
-  const snapshot =
-    await get(
-      ref(db, `rooms/${state.roomCode}`)
-    );
-
-
-  const room =
-    snapshot.val();
-
-
-  if (room.phase !== "hide") {
-    return;
-  }
-
-
-  const mousePosition =
-    room.players?.mouse?.position;
-
-
-  const center =
-    mousePosition
-      ? {
-          lat:
-            mousePosition.lat,
-
-          lng:
-            mousePosition.lng
-        }
-      : null;
-
-
-  const time =
-    Date.now();
-
-
-  await update(
-    ref(db, `rooms/${state.roomCode}`),
-    {
-
-      phase: "hunt",
-
-      "game/huntStartedAt":
-        time,
-
-      "game/circle/center":
-        center,
-
-      "game/circle/radius":
-        300
-
-    }
-  );
-
-}
-
-
-/* ========================================================= */
-/* HORLOGE */
-/* ========================================================= */
-
-function startClock() {
-
-  if (state.clock) {
-    return;
-  }
-
-
-  state.clock =
-    setInterval(() => {
-
-      if (!state.room) {
-        return;
-      }
-
-
-      if (
-        state.room.phase === "hide"
-      ) {
-
-        const end =
-          Number(
-            state.room.game?.hideEndAt
-          );
-
-
-        const remaining =
-          Math.max(
-            0,
-            end - Date.now()
-          );
-
-
-        $("hideTimer")
-          .textContent =
-          formatTime(
-            remaining
-          );
-
-
-        $("mainTimer")
-          .textContent =
-          formatTime(
-            remaining
-          );
-
-
-        if (
-          remaining <= 0
-        ) {
-
-          startHunt();
-
-        }
-
-      }
-
-
-      if (
-        state.room.phase === "hunt"
-      ) {
-
-        const start =
-          Number(
-            state.room.game?.huntStartedAt
-          );
-
-
-        const elapsed =
-          Date.now() - start;
-
-
-        $("mainTimer")
-          .textContent =
-          formatTime(
-            elapsed
-          );
-
-
-        updateCircle();
-
-        checkZone();
-
-      }
-
-    }, 500);
-
-}
-
-
-/* ========================================================= */
-/* HORS-ZONE */
-/* ========================================================= */
-
-async function checkZone() {
-
-  if (
-    state.role !== "chat" ||
-    state.room?.phase !== "hunt" ||
-    !state.position
-  ) {
-
-    return;
-
-  }
-
-
-  const circle =
-    state.room.game?.circle;
-
-
-  if (!circle?.center) {
-    return;
-  }
-
-
-  const distance =
-    distanceMeters(
-      state.position,
-      circle.center
-    );
-
-
-  /*
-   * Le Chat est hors-zone
-   * lorsqu'il se trouve à plus
-   * de 400 m du centre.
-   */
-
-  const out =
-    distance > 400;
-
-
-  $("zoneWarning")
-    .classList.toggle(
-      "hidden",
-      !out
-    );
-
-
-  document.body
-    .classList.toggle(
-      "out-of-zone",
-      out
-    );
-
-
-  if (
-    out &&
-    !state.wasOutOfZone
-  ) {
-
-    state.wasOutOfZone =
-      true;
-
-    state.outSince =
-      Date.now();
-
-  }
-
-
-  if (!out) {
-
-    state.wasOutOfZone =
-      false;
-
-    state.outSince =
-      null;
-
-  }
-
-
-  /*
-   * Agrandissement après
-   * 5 minutes hors-zone.
-   */
-
-  if (
-    out &&
-    state.outSince &&
-    circle.radius < 400 &&
-    Date.now() -
-      state.outSince >=
-      5 * 60 * 1000
-  ) {
-
-    const newRadius =
-      Math.min(
-        400,
-        circle.radius + 50
-      );
-
-
-    await update(
-      ref(
-        db,
-        `rooms/${state.roomCode}/game/circle`
-      ),
-      {
-        radius:
-          newRadius
-      }
-    );
-
-
-    state.outSince =
-      Date.now();
-
-  }
-
-}
-
-
-/* ========================================================= */
-/* DÉFIS */
-/* ========================================================= */
-
-function subscribeChallenges() {
-
-  if (state.challengeListener) {
-
-    state.challengeListener();
-
-  }
-
-
-  state.challengeListener =
-    onValue(
-      ref(
-        db,
-        `rooms/${state.roomCode}/challenges`
-      ),
-
-      snapshot => {
-
-        renderChallenges(
-          snapshot.val() || {}
-        );
-
-      }
-
-    );
-
-}
-
-
-function renderChallenges(
-  challenges
-) {
-
-  const entries =
-    Object.entries(
-      challenges
-    );
-
-
-  const active =
-    entries.filter(
-      ([, challenge]) =>
-        !challenge.status &&
-        challenge.expiresAt >
-        Date.now()
-    );
-
-
-  if (
-    state.role === "mouse"
-  ) {
-
-    const unseen =
-      active.filter(
-        ([, challenge]) =>
-          challenge.seenByMouse !== true
-      ).length;
-
-
-    $("challengeBadge")
-      .textContent =
-      unseen;
-
-
-    $("challengeBadge")
-      .classList.toggle(
-        "hidden",
-        unseen === 0
-      );
-
-  }
-
-
-  $("challengeList")
-    .innerHTML =
-    entries.length === 0
-
-      ? "<p>Aucun défi.</p>"
-
-      : entries
-        .sort(
-          (a, b) =>
-            (b[1].createdAt || 0) -
-            (a[1].createdAt || 0)
-        )
-        .map(
-          ([id, challenge]) =>
-            renderChallenge(
-              id,
-              challenge
-            )
-        )
-        .join("");
-
-}
-
-
-/* ========================================================= */
-/* AFFICHAGE DÉFI */
-/* ========================================================= */
-
-function renderChallenge(
-  id,
-  challenge
-) {
-
-  const expired =
-    challenge.expiresAt <=
-    Date.now();
-
-
-  let buttons = "";
-
-
-  if (
-    state.role === "mouse" &&
-    !expired &&
-    !challenge.proofUrl
-  ) {
-
-    buttons = `
-      <div class="challenge-actions">
-
-        <button
-          onclick="window.sendProof('${id}')"
-        >
-          📷 Envoyer une preuve
-        </button>
-
-      </div>
-    `;
-
-  }
-
-
-  if (
-    state.role === "chat" &&
-    challenge.proofUrl &&
-    !challenge.status
-  ) {
-
-    buttons = `
-      <div class="challenge-actions">
-
-        <button
-          onclick="window.reviewChallenge('${id}', 'validated')"
-        >
-          ✅ Valider
-        </button>
-
-        <button
-          onclick="window.reviewChallenge('${id}', 'refused')"
-        >
-          ❌ Refuser
-        </button>
-
-      </div>
-    `;
-
-  }
-
-
-  const status =
-    challenge.status === "validated"
-      ? "✅ Validé"
-
-      : challenge.status === "refused"
-        ? "❌ Refusé"
-
-        : expired
-          ? "⌛ Expiré"
-
-          : "⏳ En cours";
-
-
-  return `
-
-    <div class="challenge-item">
-
-      <h4>
-        ${escapeHTML(
-          challenge.text
-        )}
-      </h4>
-
-      <div class="challenge-meta">
-
-        +${Number(
-          challenge.points
-        )} points
-
-        ·
-
-        ${status}
-
-      </div>
-
-      ${buttons}
-
-    </div>
-
-  `;
-
-}
-
-
-/* ========================================================= */
-/* CRÉER DÉFI */
-/* ========================================================= */
-
-async function createChallenge() {
-
-  if (
-    state.role !== "chat"
-  ) {
-
-    return;
-
-  }
-
-
-  const text =
-    $("challengeText")
-      .value
-      .trim();
-
-
-  const points =
-    Number(
-      $("challengePoints")
-        .value
-    );
-
-
-  if (!text) {
-
-    alert(
-      "Écris le défi."
-    );
-
-    return;
-
-  }
-
-
-  if (
-    !Number.isFinite(points) ||
-    points < 1
-  ) {
-
-    alert(
-      "Nombre de points invalide."
-    );
-
-    return;
-
-  }
-
-
-  const challengeRef =
-    push(
-      ref(
-        db,
-        `rooms/${state.roomCode}/challenges`
-      )
-    );
-
-
-  const createdAt =
-    Date.now();
-
-
-  await set(
-    challengeRef,
-    {
-
-      text,
-
-      points,
-
-      createdAt,
-
-      expiresAt:
-        createdAt +
-        10 * 60 * 1000,
-
-      createdBy:
-        state.uid,
-
-      status:
-        null,
-
-      proofUrl:
-        null,
-
-      seenByMouse:
-        false
-
-    }
-  );
-
-
-  $("challengeText")
-    .value = "";
-
-}
-
-
-/* ========================================================= */
-/* PREUVE PHOTO */
-/* ========================================================= */
-
-window.sendProof =
-async function (
-  challengeId
-) {
-
-  const input =
-    document.createElement(
-      "input"
-    );
-
-
-  input.type =
-    "file";
-
-  input.accept =
-    "image/*";
-
-  input.capture =
-    "environment";
-
-
-  input.onchange =
-  async () => {
-
-    const file =
-      input.files?.[0];
-
-
-    if (!file) {
-      return;
-    }
-
-
-    if (
-      file.size >
-      8 * 1024 * 1024
-    ) {
-
-      alert(
-        "La photo doit faire moins de 8 Mo."
-      );
-
-      return;
-
-    }
-
-
-    try {
-
-      const path =
-        `rooms/${state.roomCode}/proofs/${challengeId}/${state.uid}_${Date.now()}`;
-
-
-      const fileRef =
-        storageRef(
-          storage,
-          path
-        );
-
-
-      await uploadBytes(
-        fileRef,
-        file,
-        {
-          contentType:
-            file.type
-        }
-      );
-
-
-      const url =
-        await getDownloadURL(
-          fileRef
-        );
-
-
-      await update(
-        ref(
-          db,
-          `rooms/${state.roomCode}/challenges/${challengeId}`
-        ),
-        {
-
-          proofUrl:
-            url,
-
-          proofAt:
-            Date.now(),
-
-          proofBy:
-            state.uid,
-
-          seenByMouse:
-            true
-
-        }
-      );
-
-
-      alert(
-        "Preuve envoyée !"
-      );
-
-    }
-
-    catch (error) {
-
-      console.error(
-        error
-      );
-
-      alert(
-        "Erreur lors de l'envoi."
-      );
-
-    }
-
-  };
-
-
-  input.click();
-
-};
-
-
-/* ========================================================= */
-/* VALIDATION DÉFI */
-/* ========================================================= */
-
-window.reviewChallenge =
-async function (
-  challengeId,
-  status
-) {
-
-  if (
-    state.role !== "chat"
-  ) {
-
-    return;
-
-  }
-
-
-  const challenge =
-    state.room?.challenges?.[
-      challengeId
-    ];
-
-
-  if (!challenge) {
-    return;
-  }
-
-
-  if (
-    status === "validated"
-  ) {
-
-    await runTransaction(
-      ref(
-        db,
-        `rooms/${state.roomCode}/players/mouse/score`
-      ),
-
-      score => {
-
-        return (
-          Number(score) || 0
-        ) +
-        Number(
-          challenge.points
-        );
-
-      }
-
-    );
-
-  }
-
-
-  await update(
-    ref(
-      db,
-      `rooms/${state.roomCode}/challenges/${challengeId}`
-    ),
-    {
-
-      status,
-
-      reviewedBy:
-        state.uid,
-
-      reviewedAt:
-        Date.now()
-
-    }
-  );
-
-};
-
-
-/* ========================================================= */
-/* CAPTURE */
-/* ========================================================= */
-
-async function declareCapture() {
-
-  if (
-    state.role !== "chat" ||
-    state.room?.phase !== "hunt"
-  ) {
-
-    return;
-
-  }
-
-
-  const survival =
-    Date.now() -
-    Number(
-      state.room.game.huntStartedAt
-    );
-
-
-  await update(
-    ref(db, `rooms/${state.roomCode}`),
-    {
-
-      "game/capture/declaredBy":
-        state.uid,
-
-      "game/capture/declaredAt":
-        Date.now(),
-
-      "game/survivalMs":
-        survival
-
-    }
-  );
-
-
-  renderCapture();
-
-}
-
-
-async function confirmCapture() {
-
-  if (
-    state.role !== "mouse"
-  ) {
-
-    return;
-
-  }
-
-
-  await update(
-    ref(db, `rooms/${state.roomCode}`),
-    {
-
-      "game/capture/confirmed":
-        true,
-
-      phase:
-        "review"
-
-    }
-  );
-
-}
-
-
-function renderCapture() {
-
-  const capture =
-    state.room?.game?.capture;
-
-
-  if (
-    state.role === "chat"
-  ) {
-
-    if (
-      capture?.declaredBy
-    ) {
-
-      $("captureContent")
-        .innerHTML = `
-
-          <p>
-            📍 Capture déclarée.
-          </p>
-
-          <p>
-            En attente de la confirmation
-            de la Souris.
-          </p>
-
-        `;
-
-    }
-
-    else {
-
-      $("captureContent")
-        .innerHTML = `
-
-          <p>
-            Tu as trouvé la Souris ?
-          </p>
-
-          <button
-            id="declareCaptureButton"
-            class="main-button"
-          >
-            🐱 J'ai trouvé la Souris
-          </button>
-
-        `;
-
-
-      $("declareCaptureButton")
-        .onclick =
-        declareCapture;
-
-    }
-
-  }
-
-  else {
-
-    if (
-      capture?.declaredBy
-    ) {
-
-      $("captureContent")
-        .innerHTML = `
-
-          <p>
-            🐱 Le Chat déclare
-            t'avoir trouvé.
-          </p>
-
-          <button
-            id="confirmCaptureButton"
-            class="main-button"
-          >
-            🐭 Confirmer la capture
-          </button>
-
-        `;
-
-
-      $("confirmCaptureButton")
-        .onclick =
-        confirmCapture;
-
-    }
-
-    else {
-
-      $("captureContent")
-        .innerHTML = `
-
-          <p>
-            La capture apparaîtra ici
-            lorsque le Chat la déclarera.
-          </p>
-
-        `;
-
-    }
-
-  }
-
-}
-
-
-/* ========================================================= */
-/* RÉVISION */
-/* ========================================================= */
-
-function renderReview() {
-
-  const challenges =
-    state.room?.challenges ||
-    {};
-
-
-  const proofs =
-    Object.entries(
-      challenges
-    )
-    .filter(
-      ([, challenge]) =>
-        challenge.proofUrl
-    );
-
-
-  $("reviewList")
-    .innerHTML =
-    proofs.length === 0
-
-      ? "<p>Aucune preuve envoyée.</p>"
-
-      : proofs
-        .map(
-          ([id, challenge]) => `
-
-            <div class="review-item">
-
-              <h4>
-                ${escapeHTML(
-                  challenge.text
-                )}
-              </h4>
-
-              <img
-                class="photo-preview"
-                src="${escapeHTML(
-                  challenge.proofUrl
-                )}"
-                alt="Preuve"
-              >
-
-              <p>
-                +${challenge.points}
-                points
-              </p>
-
-              ${
-                state.role === "chat" &&
-                !challenge.status
-
-                  ? `
-
-                    <div
-                      class="challenge-actions"
-                    >
-
-                      <button
-                        onclick="window.reviewChallenge('${id}', 'validated')"
-                      >
-                        ✅ Valider
-                      </button>
-
-                      <button
-                        onclick="window.reviewChallenge('${id}', 'refused')"
-                      >
-                        ❌ Refuser
-                      </button>
-
-                    </div>
-
-                  `
-
-                  : ""
-
-              }
-
-            </div>
-
-          `
-        )
-        .join("");
-
-
-  $("reviewButton")
-    .classList.toggle(
-      "hidden",
-      state.role !== "chat"
-    );
-
-}
-
-
-/* ========================================================= */
-/* TERMINER PARTIE */
-/* ========================================================= */
-
-async function finishGame() {
-
-  if (
-    state.role !== "chat"
-  ) {
-
-    return;
-
-  }
-
-
-  await update(
-    ref(
-      db,
-      `rooms/${state.roomCode}`
-    ),
-    {
-
-      phase:
-        "finished",
-
-      status:
-        "finished",
-
-      finishedAt:
-        Date.now()
-
-    }
-  );
-
-}
-
-
-/* ========================================================= */
-/* RÉSULTATS */
-/* ========================================================= */
-
-function renderResult() {
-
-  showScreen(
-    "resultScreen"
-  );
-
-
-  const room =
-    state.room;
-
-
-  const mouseScore =
-    Number(
-      room.players?.mouse?.score ||
-      0
-    );
-
-
-  const chatScore =
-    Number(
-      room.players?.chat?.score ||
-      0
-    );
-
-
-  const survival =
-    Number(
-      room.game?.survivalMs ||
-      0
-    );
-
-
-  $("mouseScore")
-    .textContent =
-    mouseScore;
-
-
-  $("chatScore")
-    .textContent =
-    chatScore;
-
-
-  $("survivalTime")
-    .textContent =
-    formatTime(
-      survival
-    );
-
-
-  if (
-    mouseScore >
-    chatScore
-  ) {
-
-    $("resultIcon")
-      .textContent =
-      "🐭";
-
-    $("resultTitle")
-      .textContent =
-      "La Souris gagne !";
-
-  }
-
-  else if (
-    chatScore >
-    mouseScore
-  ) {
-
-    $("resultIcon")
-      .textContent =
-      "🐱";
-
-    $("resultTitle")
-      .textContent =
-      "Le Chat gagne !";
-
-  }
-
-  else {
-
-    $("resultIcon")
-      .textContent =
-      "🤝";
-
-    $("resultTitle")
-      .textContent =
-      "Égalité !";
-
-  }
-
-
-  $("resultSubtitle")
-    .textContent =
-    `Temps de survie : ${formatTime(
-      survival
-    )}`;
-
-}
-
-
-/* ========================================================= */
-/* PANNEAUX */
-/* ========================================================= */
-
-$("challengeButton")
-  .onclick =
-  () => {
-
-    $("challengePanel")
-      .classList
-      .toggle("hidden");
-
-  };
-
-
-$("captureButton")
-  .onclick =
-  () => {
-
-    renderCapture();
-
-    $("capturePanel")
-      .classList
-      .toggle("hidden");
-
-  };
-
-
-$("reviewButton")
-  .onclick =
-  () => {
-
-    renderReview();
-
-    $("reviewPanel")
-      .classList
-      .toggle("hidden");
-
-  };
-
-
-document
-  .querySelectorAll(
-    "[data-close]"
-  )
-  .forEach(button => {
-
-    button.onclick =
-      () => {
-
-        const panel =
-          button.dataset.close;
-
-        $(panel)
-          .classList
-          .add("hidden");
-
-      };
-
+// --- SALLE D'ATTENTE & SYNCHRO FIREBASE ---
+function enterWaitingRoom() {
+  hideScreen('lobby-screen');
+  hideScreen('podium-screen');
+  showScreen('waiting-room-screen');
+  
+  const codeElem = document.getElementById('waiting-room-code');
+  if (codeElem) codeElem.innerText = roomCode;
+
+  db.ref(`rooms/${roomCode}/players/${myRole}`).set({
+    role: myRole,
+    name: myName,
+    color: myColor,
+    ready: false,
+    score: 0
   });
 
+  db.ref(`rooms/${roomCode}/players`).on('value', (snap) => {
+    const players = snap.val();
+    if (!players) return;
 
-/* ========================================================= */
-/* BOUTONS */
-/* ========================================================= */
-
-$("createRoomButton")
-  .onclick =
-  createRoom;
-
-
-$("joinRoomButton")
-  .onclick =
-  joinRoom;
-
-
-$("readyButton")
-  .onclick =
-  toggleReady;
-
-
-$("sendChallengeButton")
-  .onclick =
-  createChallenge;
-
-
-$("centerButton")
-  .onclick =
-  () => {
-
-    if (
-      state.position &&
-      state.map
-    ) {
-
-      state.map.setView(
-        [
-          state.position.lat,
-          state.position.lng
-        ],
-        17
-      );
-
+    let html = '';
+    let countReady = 0;
+    for (let r in players) {
+      const p = players[r];
+      if (p.ready) countReady++;
+      const label = (r === 'mouse') ? '🐭 Souris' : '🐱 Chat';
+      html += `<div style="padding:6px 0; border-bottom:1px solid #eee;"><b>${p.name}</b> (${label}) — ${p.ready ? '✅ Prêt' : '⏳ En attente'}</div>`;
     }
 
-  };
+    const listElem = document.getElementById('players-status-list');
+    if (listElem) listElem.innerHTML = html;
 
-
-$("finishButton")
-  .onclick =
-  () => {
-
-    if (
-      state.role === "chat"
-    ) {
-
-      finishGame();
-
+    if (countReady >= 2 && myRole === 'mouse') {
+      db.ref(`rooms/${roomCode}/gameState`).set({
+        phase: 'HIDING',
+        startTime: Date.now(),
+        hideDuration: hideDurationMinutes
+      });
     }
+  });
 
-    else {
-
-      alert(
-        "La fin de partie doit être confirmée par le Chat."
-      );
-
-    }
-
-  };
-
-
-$("leaveRoomButton")
-  .onclick =
-  goHome;
-
-
-$("homeButton")
-  .onclick =
-  goHome;
-
-
-/* ========================================================= */
-/* NOUVELLE PARTIE */
-/* ========================================================= */
-
-$("rematchButton")
-  .onclick =
-  async () => {
-
-    const newRole =
-      state.role === "chat"
-        ? "mouse"
-        : "chat";
-
-
-    const newCode =
-      randomRoomCode();
-
-
-    const hideMinutes =
-      Number(
-        state.room?.settings?.hideMinutes ||
-        5
-      );
-
-
-    await set(
-      ref(
-        db,
-        `rooms/${newCode}`
-      ),
-      {
-
-        status:
-          "lobby",
-
-        phase:
-          "lobby",
-
-        createdAt:
-          Date.now(),
-
-        hostUid:
-          state.uid,
-
-        settings: {
-          hideMinutes
-        },
-
-        players: {
-
-          [newRole]: {
-
-            uid:
-              state.uid,
-
-            nickname:
-              state.nickname,
-
-            color:
-              state.color,
-
-            ready:
-              false,
-
-            online:
-              true,
-
-            score:
-              0,
-
-            position:
-              null
-
-          }
-
-        },
-
-        game: {
-
-          hideEndAt:
-            null,
-
-          huntStartedAt:
-            null,
-
-          survivalMs:
-            null,
-
-          circle: {
-
-            center:
-              null,
-
-            radius:
-              300
-
-          },
-
-          capture: {
-
-            declaredBy:
-              null,
-
-            declaredAt:
-              null,
-
-            confirmed:
-              false
-
-          }
-
-        },
-
-        challenges:
-          {}
-
+  db.ref(`rooms/${roomCode}/gameState`).on('value', (snap) => {
+    const st = snap.val();
+    if (st && (st.phase === 'HIDING' || st.phase === 'HUNTING')) {
+      gameStartTime = st.startTime;
+      hideDurationMinutes = st.hideDuration || 5;
+      if (document.getElementById('app-container').style.display !== 'flex') {
+        startGameSession();
       }
-    );
-
-
-    state.role =
-      newRole;
-
-
-    state.roomCode =
-      newCode;
-
-
-    subscribeRoom();
-
-    showScreen(
-      "lobbyScreen"
-    );
-
-  };
-
-
-/* ========================================================= */
-/* RETOUR ACCUEIL */
-/* ========================================================= */
-
-function goHome() {
-
-  if (
-    state.watchId !== null
-  ) {
-
-    navigator.geolocation
-      .clearWatch(
-        state.watchId
-      );
-
-    state.watchId =
-      null;
-
-  }
-
-
-  if (
-    state.roomListener
-  ) {
-
-    state.roomListener();
-
-    state.roomListener =
-      null;
-
-  }
-
-
-  if (
-    state.challengeListener
-  ) {
-
-    state.challengeListener();
-
-    state.challengeListener =
-      null;
-
-  }
-
-
-  state.room =
-    null;
-
-  state.roomCode =
-    null;
-
-  state.marker =
-    null;
-
-  state.circle =
-    null;
-
-
-  document.body
-    .classList
-    .remove(
-      "out-of-zone"
-    );
-
-
-  showScreen(
-    "homeScreen"
-  );
-
+    }
+    if (st && st.phase === 'REVIEW') showReviewScreen();
+    if (st && st.phase === 'PODIUM') showPodiumScreen();
+  });
 }
 
+// --- INITIALISATION DU JEU ---
+function startGameSession() {
+  hideScreen('waiting-room-screen');
+  hideScreen('review-screen');
+  hideScreen('podium-screen');
+  showScreen('app-container');
 
-/* ========================================================= */
-/* INITIALISATION */
-/* ========================================================= */
+  initLeafletMap();
+  startGPS();
+  listenFirebaseGameData();
 
-console.log(
-  "🐱 Chat & Souris chargé."
-);
+  const isCat = (myRole === 'cat');
+  const creationBox = document.getElementById('seeker-challenge-creation');
+  const btnFound = document.getElementById('btn-found-seeker');
+  if (creationBox) creationBox.style.display = isCat ? 'block' : 'none';
+  if (btnFound) btnFound.style.display = isCat ? 'block' : 'none';
+
+  if (gameLoopTimer) clearInterval(gameLoopTimer);
+  gameLoopTimer = setInterval(mainGameLoop, 1000);
+}
+
+function initLeafletMap() {
+  if (map) return;
+  map = L.map('map', { zoomControl: false }).setView([48.6800, 2.4150], 16);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+}
+
+function startGPS() {
+  navigator.geolocation.watchPosition((pos) => {
+    currentPos = [pos.coords.latitude, pos.coords.longitude];
+
+    // Envoi de la position à Firebase
+    if (roomCode) {
+      db.ref(`rooms/${roomCode}/positions/${myRole}`).set({ lat: currentPos[0], lng: currentPos[1] });
+    }
+
+    // Mise à jour du marqueur visuel
+    updateMyMarker();
+
+    // Gestion du centre du cercle pour le Chat
+    if (myRole === 'cat') {
+      if (!circleCenter) {
+        circleCenter = [currentPos[0], currentPos[1]];
+        syncCircleDb();
+      } else {
+        const dist = getDistanceInMeters(currentPos[0], currentPos[1], circleCenter[0], circleCenter[1]);
+        if (dist >= circleRadius) {
+          const angle = Math.atan2(currentPos[1] - circleCenter[1], currentPos[0] - circleCenter[0]);
+          const newLat = currentPos[0] - (circleRadius / 111320) * Math.cos(angle);
+          const newLng = currentPos[1] - (circleRadius / (111320 * Math.cos(currentPos[0] * Math.PI / 180))) * Math.sin(angle);
+          circleCenter = [newLat, newLng];
+          syncCircleDb();
+        }
+      }
+    }
+  }, null, { enableHighAccuracy: true });
+}
+
+function updateMyMarker() {
+  if (!currentPos || !map) return;
+
+  // LE CHAT NE VOIT PAS SON MARQUEUR PENDANT LES 5 PREMIÈRES MINUTES
+  if (myRole === 'cat' && isHidingPhase) {
+    if (myMarker) {
+      map.removeLayer(myMarker);
+      myMarker = null;
+    }
+    return;
+  }
+
+  const customIcon = L.divIcon({
+    className: 'custom-dot-container',
+    html: `<div class="user-location-dot" style="background-color: ${myColor};"></div>`,
+    iconSize: [18, 18],
+    iconAnchor: [9, 9]
+  });
+
+  if (!myMarker) {
+    myMarker = L.marker(currentPos, { icon: customIcon }).addTo(map);
+  } else {
+    myMarker.setLatLng(currentPos);
+  }
+}
+
+function drawCircleOnMap(lat, lng, radius) {
+  if (!map) return;
+
+  // RÈGLE ABSOLUE : La Souris ne voit AUCUN cercle sur sa carte.
+  // RÈGLE ABSOLUE : Le Chat ne voit AUCUN cercle pendant la phase de cachette.
+  if (myRole === 'mouse' || (myRole === 'cat' && isHidingPhase)) {
+    if (zoneCircleLayer) {
+      map.removeLayer(zoneCircleLayer);
+      zoneCircleLayer = null;
+    }
+    return;
+  }
+
+  // Affichage du cercle uniquement pour le Chat pendant la traque
+  if (!zoneCircleLayer) {
+    zoneCircleLayer = L.circle([lat, lng], {
+      color: myColor,
+      fillColor: myColor,
+      fillOpacity: 0.15,
+      weight: 2,
+      radius: radius
+    }).addTo(map);
+  } else {
+    zoneCircleLayer.setLatLng([lat, lng]);
+    zoneCircleLayer.setRadius(radius);
+  }
+}
+
+function syncCircleDb() {
+  if (myRole === 'cat' && roomCode && circleCenter) {
+    db.ref(`rooms/${roomCode}/circle`).set({
+      lat: circleCenter[0],
+      lng: circleCenter[1],
+      radius: circleRadius
+    });
+  }
+}
+
+function listenFirebaseGameData() {
+  db.ref(`rooms/${roomCode}/circle`).on('value', (snap) => {
+    const c = snap.val();
+    if (c) {
+      circleCenter = [c.lat, c.lng];
+      circleRadius = c.radius || RADIUS_MAX;
+      drawCircleOnMap(circleCenter[0], circleCenter[1], circleRadius);
+    }
+  });
+
+  db.ref(`rooms/${roomCode}/challenges`).on('value', (snap) => {
+    activeChallenges = snap.val() || {};
+    renderChallengesList();
+  });
+
+  db.ref(`rooms/${roomCode}/roundStatus`).on('value', (snap) => {
+    const status = snap.val();
+    if (status === 'CAT_CLAIMED' && myRole === 'mouse') {
+      const btnConfirm = document.getElementById('btn-confirm-hider');
+      const statusTxt = document.getElementById('status-text');
+      if (btnConfirm) btnConfirm.style.display = 'block';
+      if (statusTxt) statusTxt.innerText = "Le Chat affirme vous avoir attrapé ! Confirmez-vous ?";
+    } else if (status === 'CONFIRMED') {
+      db.ref(`rooms/${roomCode}/gameState/phase`).set('REVIEW');
+    }
+  });
+}
+
+// --- BOUCLE TEMPS RÉEL (1 SECONDE) ---
+function mainGameLoop() {
+  if (!gameStartTime) return;
+  const now = Date.now();
+
+  const hideDurationMs = hideDurationMinutes * 60 * 1000;
+  const hideEndTime = gameStartTime + hideDurationMs;
+  const remainingHideMs = hideEndTime - now;
+
+  const timerDisplay = document.getElementById('timer-display');
+  const statusTxt = document.getElementById('status-text');
+
+  // 1. PHASE DE CACHETTE (5 MINUTES)
+  if (remainingHideMs > 0) {
+    isHidingPhase = true;
+    circleRadius = RADIUS_MAX;
+
+    const sec = Math.floor(remainingHideMs / 1000);
+    const m = String(Math.floor(sec / 60)).padStart(2, '0');
+    const s = String(sec % 60).padStart(2, '0');
+
+    if (timerDisplay) timerDisplay.innerText = `${m}:${s}`;
+
+    if (myRole === 'mouse') {
+      if (statusTxt) statusTxt.innerText = `Cachez-vous ! Le Chat arrive dans ${m}:${s}`;
+    } else {
+      if (statusTxt) statusTxt.innerText = `Patientez, la Souris se cache... (${m}:${s})`;
+      // S'assurer que le Chat ne voit rien sur la carte
+      if (myMarker) updateMyMarker();
+      if (zoneCircleLayer) drawCircleOnMap(0, 0, 0);
+    }
+    setScreenWarningBlink(false);
+  } 
+  // 2. PHASE DE TRAQUE
+  else {
+    const elapsedMs = now - hideEndTime;
+    const elapsedMinutes = Math.floor(elapsedMs / (60 * 1000));
+
+    if (isHidingPhase) {
+      isHidingPhase = false;
+      circleRadius = 300;
+      syncCircleDb();
+      updateMyMarker(); // Fait apparaître le marqueur du Chat
+    }
+
+    const sec = Math.floor(elapsedMs / 1000);
+    const m = String(Math.floor(sec / 60)).padStart(2, '0');
+    const s = String(sec % 60).padStart(2, '0');
+
+    if (timerDisplay) timerDisplay.innerText = `${m}:${s}`;
+
+    if (myRole === 'cat') {
+      if (statusTxt) statusTxt.innerText = `Traque en cours ! Retrouvez la Souris.`;
+      setScreenWarningBlink(false);
+      if (circleCenter) drawCircleOnMap(circleCenter[0], circleCenter[1], circleRadius);
+    } else if (myRole === 'mouse') {
+      if (currentPos && circleCenter) {
+        const dist = getDistanceInMeters(currentPos[0], currentPos[1], circleCenter[0], circleCenter[1]);
+        const isOutside = (dist > circleRadius);
+
+        if (isOutside) {
+          setScreenWarningBlink(true);
+
+          if (!outOfZoneStartTime) outOfZoneStartTime = now;
+          const outsideTimeMs = now - outOfZoneStartTime;
+          const outsideSecRemaining = Math.max(0, (5 * 60 * 1000) - outsideTimeMs);
+          const mOut = String(Math.floor(outsideSecRemaining / 60000)).padStart(2, '0');
+          const sOut = String(Math.floor((outsideSecRemaining % 60000) / 1000)).padStart(2, '0');
+
+          // RÈGLE : Aucun agrandissement possible si déjà au Rayon Maximal (400m)
+          if (circleRadius >= RADIUS_MAX) {
+            if (statusTxt) statusTxt.innerText = `⚠️ VOUS ÊTES HORS-ZONE ! Réintégrez la zone immédiatement !`;
+          } else {
+            if (statusTxt) statusTxt.innerText = `⚠️ HORS-ZONE ! Agrandissement (+50m) dans ${mOut}:${sOut}`;
+            if (outsideTimeMs >= 5 * 60 * 1000) {
+              circleRadius = Math.min(RADIUS_MAX, circleRadius + 50);
+              outOfZoneStartTime = now;
+              syncCircleDb();
+            }
+          }
+        } else {
+          setScreenWarningBlink(false);
+          outOfZoneStartTime = null;
+
+          const shrinkSteps = Math.floor(elapsedMinutes / 5);
+          const targetRadius = Math.max(RADIUS_MIN, 300 - (shrinkSteps * 50));
+
+          if (circleRadius > targetRadius) {
+            circleRadius = targetRadius;
+            syncCircleDb();
+          }
+
+          const nextShrinkMs = ((shrinkSteps + 1) * 5 * 60 * 1000) - elapsedMs;
+          const nextSec = Math.max(0, Math.floor(nextShrinkMs / 1000));
+          const mNext = String(Math.floor(nextSec / 60)).padStart(2, '0');
+          const sNext = String(nextSec % 60).padStart(2, '0');
+
+          if (statusTxt) statusTxt.innerText = `Restez dissimulé. Rétrécissement (-50m) dans ${mNext}:${sNext}`;
+        }
+      }
+    }
+  }
+}
+
+// BORDURE CLIGNOTANTE ORANGE EN HORS-ZONE
+function setScreenWarningBlink(enable) {
+  const container = document.getElementById('app-container');
+  if (!container) return;
+  if (enable) {
+    container.classList.add('screen-warning-blink');
+  } else {
+    container.classList.remove('screen-warning-blink');
+  }
+}
+
+// --- DÉFIS ---
+function renderChallengesList() {
+  const container = document.querySelector('.challenges-container');
+  if (!container) return;
+
+  const creationBox = document.getElementById('seeker-challenge-creation');
+  let html = (myRole === 'cat' && creationBox) ? creationBox.outerHTML : '';
+  const keys = Object.keys(activeChallenges);
+
+  if (keys.length === 0) {
+    html += `<div class="challenge-card"><h3>📋 Défis</h3><p>Aucun défi en cours.</p></div>`;
+  } else {
+    keys.forEach((key) => {
+      const ch = activeChallenges[key];
+      html += `
+        <div class="challenge-card">
+          <h3>📋 Défi (${ch.pts} pts)</h3>
+          <p>${ch.text}</p>
+          ${myRole === 'mouse' ? `<button onclick="openCamera('${ch.id}')" class="btn-success">📷 Prendre la photo</button>` : ''}
+        </div>
+      `;
+    });
+  }
+
+  container.innerHTML = html;
+
+  const sendBtn = document.getElementById('btn-send-challenge');
+  if (sendBtn) {
+    sendBtn.onclick = () => {
+      const txtElem = document.getElementById('custom-challenge-text');
+      const ptsElem = document.getElementById('custom-challenge-pts');
+      const text = txtElem ? txtElem.value.trim() : '';
+      const pts = ptsElem ? parseInt(ptsElem.value) || 20 : 20;
+
+      if (!text) return alert("Saisissez l'intitulé du défi.");
+
+      const id = 'ch_' + Date.now();
+      db.ref(`rooms/${roomCode}/challenges/${id}`).set({
+        id: id,
+        text: text,
+        pts: pts
+      });
+      if (txtElem) txtElem.value = '';
+    };
+  }
+}
+
+window.openCamera = function(challengeId) {
+  currentChallengeForPhoto = challengeId;
+  const input = document.getElementById('challenge-photo-input');
+  if (input) input.click();
+};
+
+// --- FIN DE PARTIE & PODIUM ---
+function showReviewScreen() {
+  hideScreen('app-container');
+  showScreen('review-screen');
+  setScreenWarningBlink(false);
+
+  db.ref(`rooms/${roomCode}/submittedPhotos`).once('value', (snap) => {
+    const photos = snap.val();
+    const container = document.getElementById('photos-review-list');
+    if (!container) return;
+
+    if (!photos) {
+      container.innerHTML = "<p>Aucune photo soumise.</p>";
+      return;
+    }
+
+    let html = '';
+    for (let key in photos) {
+      const p = photos[key];
+      html += `
+        <div class="challenge-card" style="margin-bottom:12px;">
+          <p><b>${p.challengeText}</b> (${p.pts} pts)</p>
+          <img src="${p.photo}" style="width:100%; border-radius:8px; margin:8px 0;">
+          ${myRole === 'cat' ? `
+            <div style="display:flex; gap:8px;">
+              <button onclick="valPhoto('${key}', true, ${p.pts})" class="btn-success">✅ Valider (+${p.pts} pts)</button>
+              <button onclick="valPhoto('${key}', false, 0)" class="btn-danger">❌ Rejeter</button>
+            </div>
+          ` : `<p style="font-size:0.85rem; color:#64748b;">En attente du Chat...</p>`}
+        </div>
+      `;
+    }
+    container.innerHTML = html;
+  });
+}
+
+window.valPhoto = function(photoKey, accept, pts) {
+  if (accept) {
+    db.ref(`rooms/${roomCode}/players/mouse/score`).transaction((curr) => (curr || 0) + pts);
+  }
+  db.ref(`rooms/${roomCode}/submittedPhotos/${photoKey}`).remove();
+  showReviewScreen();
+};
+
+function showPodiumScreen() {
+  hideScreen('review-screen');
+  hideScreen('app-container');
+  showScreen('podium-screen');
+  setScreenWarningBlink(false);
+
+  db.ref(`rooms/${roomCode}/players`).once('value', (snap) => {
+    const players = snap.val();
+    let list = [];
+    for (let r in players) list.push({ role: r, ...players[r] });
+
+    list.sort((a, b) => (b.score || 0) - (a.score || 0));
+
+    let html = '';
+    list.forEach((p, idx) => {
+      const medal = idx === 0 ? '🥇' : '🥈';
+      html += `
+        <div class="podium-item">
+          <div><b>${medal} ${p.name}</b> (${p.role === 'mouse' ? '🐭 Souris' : '🐱 Chat'})</div>
+          <b>${p.score || 0} pts</b>
+        </div>
+      `;
+    });
+
+    const display = document.getElementById('podium-display');
+    if (display) display.innerHTML = html;
+  });
+}
+
+function resetGame() {
+  myRole = null;
+  circleCenter = null;
+  circleRadius = RADIUS_MAX;
+  activeChallenges = {};
+  outOfZoneStartTime = null;
+  isHidingPhase = true;
+
+  if (zoneCircleLayer && map) {
+    map.removeLayer(zoneCircleLayer);
+    zoneCircleLayer = null;
+  }
+  if (myMarker && map) {
+    map.removeLayer(myMarker);
+    myMarker = null;
+  }
+
+  setScreenWarningBlink(false);
+
+  if (roomCode) {
+    db.ref(`rooms/${roomCode}`).remove();
+  }
+
+  hideScreen('podium-screen');
+  hideScreen('review-screen');
+  hideScreen('app-container');
+  showScreen('lobby-screen');
+}
+
+// UTILITAIRES D'AFFICHAGE
+function showScreen(id) {
+  const el = document.getElementById(id);
+  if (el) el.style.display = (id === 'app-container' || id === 'waiting-room-screen' || id === 'review-screen' || id === 'podium-screen' || id === 'lobby-screen') ? 'flex' : 'block';
+}
+
+function hideScreen(id) {
+  const el = document.getElementById(id);
+  if (el) el.style.display = 'none';
+}
