@@ -447,7 +447,7 @@ function mainGameLoop() {
       isHidingPhase = false;
       circleRadius = 300;
       syncCircleDb();
-      updateMyMarker(); // Fait apparaître le marqueur du Chat
+      updateMyMarker();
     }
 
     const sec = Math.floor(elapsedMs / 1000);
@@ -456,11 +456,28 @@ function mainGameLoop() {
 
     if (timerDisplay) timerDisplay.innerText = `${m}:${s}`;
 
+    // --- VUE DU CHAT ---
     if (myRole === 'cat') {
-      if (statusTxt) statusTxt.innerText = `Traque en cours ! Retrouvez la Souris.`;
       setScreenWarningBlink(false);
-      if (circleCenter) drawCircleOnMap(circleCenter[0], circleCenter[1], circleRadius);
-    } else if (myRole === 'mouse') {
+
+      if (circleCenter && currentPos) {
+        drawCircleOnMap(circleCenter[0], circleCenter[1], circleRadius);
+      }
+
+      // Calcul du rétrécissement normal
+      const shrinkSteps = Math.floor(elapsedMinutes / 5);
+      const nextShrinkMs = ((shrinkSteps + 1) * 5 * 60 * 1000) - elapsedMs;
+      const nextSec = Math.max(0, Math.floor(nextShrinkMs / 1000));
+      const mNext = String(Math.floor(nextSec / 60)).padStart(2, '0');
+      const sNext = String(nextSec % 60).padStart(2, '0');
+
+      if (statusTxt) {
+        statusTxt.innerText = `Traque en cours ! Rétrécissement (-50m) dans ${mNext}:${sNext}`;
+      }
+    } 
+    
+    // --- VUE DE LA SOURIS ---
+    else if (myRole === 'mouse') {
       if (currentPos && circleCenter) {
         const dist = getDistanceInMeters(currentPos[0], currentPos[1], circleCenter[0], circleCenter[1]);
         const isOutside = (dist > circleRadius);
@@ -474,7 +491,6 @@ function mainGameLoop() {
           const mOut = String(Math.floor(outsideSecRemaining / 60000)).padStart(2, '0');
           const sOut = String(Math.floor((outsideSecRemaining % 60000) / 1000)).padStart(2, '0');
 
-          // RÈGLE : Aucun agrandissement possible si déjà au Rayon Maximal (400m)
           if (circleRadius >= RADIUS_MAX) {
             if (statusTxt) statusTxt.innerText = `⚠️ VOUS ÊTES HORS-ZONE ! Réintégrez la zone immédiatement !`;
           } else {
@@ -507,7 +523,6 @@ function mainGameLoop() {
       }
     }
   }
-}
 
 // BORDURE CLIGNOTANTE ORANGE EN HORS-ZONE
 function setScreenWarningBlink(enable) {
