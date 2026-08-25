@@ -2,12 +2,11 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Cache-Cache Géolocalisé v5.0 Premium</title>
   
   <!-- Leaflet CSS -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <!-- Feuille de style principale -->
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -31,8 +30,8 @@
     <div class="form-group">
       <label>Choisir un Rôle</label>
       <div class="role-selector">
-        <div class="role-btn selected" id="btn-role-hider" data-role="hider">Caché (Souris)</div>
-        <div class="role-btn" id="btn-role-seeker" data-role="seeker">Chercheur (Chat)</div>
+        <div class="role-btn selected" id="btn-role-hider" data-role="hider">Souris (Caché)</div>
+        <div class="role-btn" id="btn-role-seeker" data-role="seeker">Chat (Chercheur)</div>
       </div>
     </div>
 
@@ -57,7 +56,7 @@
     <p style="text-align: center; margin-bottom: 20px;">Code du Salon : <strong id="waiting-room-code" style="color: var(--primary); font-size: 1.5rem;">----</strong></p>
     
     <div id="players-status-list" style="flex: 1; background: #2c2c2c; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
-      <!-- Liste dynamique des joueurs -->
+      <!-- Liste dynamique -->
     </div>
 
     <button id="btn-ready" class="btn btn-success">Je suis Prêt !</button>
@@ -65,12 +64,20 @@
 
   <!-- Écran 3 : Carte et Jeu Principal -->
   <div id="app-container" class="screen">
+    <!-- Écran Aveugle Chercheur (Cachette) -->
+    <div id="seeker-blind-overlay" style="display: none;">
+      <h2 style="color: var(--primary);">🙈 LA SOURIS SE CACHE !</h2>
+      <p style="margin: 15px 0; color: #ccc;">Patientez... La traque commence dans :</p>
+      <div id="blind-timer" style="font-size: 2.5rem; font-weight: bold; color: white;">00:00</div>
+    </div>
+
     <div id="map-header">
       <div>
         <div id="timer-display">00:00</div>
+        <div id="shrink-timer">Prochain rétrécissement : --:--</div>
         <div id="status-text">Initialisation...</div>
       </div>
-      <button id="btn-recenter" class="btn btn-secondary" style="padding: 5px 10px; font-size: 0.8rem;">🎯 GPS</button>
+      <button id="btn-recenter" class="btn btn-secondary" style="padding: 6px 12px; font-size: 0.8rem;">🎯 GPS</button>
     </div>
 
     <div id="map"></div>
@@ -78,13 +85,11 @@
     <div id="map-controls">
       <!-- Zone des Défis -->
       <div id="tab-challenges">
-        <!-- Formulaire Chercheur -->
         <div id="seeker-challenge-form" style="display: none;">
-          <input type="text" id="custom-challenge-text" placeholder="Ex: Prends un banc en photo" style="width: 100%; margin-bottom: 5px;">
+          <input type="text" id="custom-challenge-text" placeholder="Ex: Prends une fleur en photo" style="width: 100%; margin-bottom: 5px;">
           <input type="number" id="custom-challenge-pts" placeholder="Points (ex: 50)" style="width: 100%; margin-bottom: 5px;">
           <button id="btn-send-challenge" class="btn btn-secondary" style="width: 100%;">Envoyer le Défi</button>
         </div>
-        <!-- Formulaire Caché -->
         <div id="hider-challenge-form" style="display: none; text-align: center;">
           <p id="hider-challenge-desc" style="margin-bottom: 10px;">Aucun défi en cours.</p>
           <input type="file" id="challenge-photo-input" accept="image/*" capture="environment" style="display: none;">
@@ -92,7 +97,7 @@
         </div>
       </div>
 
-      <button id="btn-found-seeker" class="btn" style="display: none;">J'ai trouvé le caché !</button>
+      <button id="btn-found-seeker" class="btn" style="display: none;">J'ai trouvé la souris !</button>
       <button id="btn-confirm-hider" class="btn btn-success" style="display: none;">Confirmer l'attrapé</button>
     </div>
   </div>
@@ -101,7 +106,7 @@
   <div id="review-screen" class="screen">
     <h2>Révision des Défis</h2>
     <div id="photos-review-list" style="flex: 1; overflow-y: auto;">
-      <!-- Photos dynamiques -->
+      <!-- Photos dynamique -->
     </div>
     <button id="btn-finish-review" class="btn">Voir le Podium</button>
   </div>
@@ -110,7 +115,7 @@
   <div id="podium-screen" class="screen" style="text-align: center;">
     <h2>🏆 Fin de Partie</h2>
     <div id="podium-display" style="margin: 30px 0; font-size: 1.2rem; flex: 1;">
-      <!-- Rendu dynamique du vainqueur -->
+      <!-- Rendu dynamique -->
     </div>
     <button id="btn-swap-roles" class="btn" style="margin-bottom: 10px;">Inverser les rôles</button>
     <button id="btn-leave-room" class="btn btn-secondary">Quitter le salon</button>
@@ -121,7 +126,7 @@
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
 
-  <!-- Vos Scripts JS -->
+  <!-- Scripts Application -->
   <script src="firebase-config.js"></script>
   <script src="app.js"></script>
 </body>
