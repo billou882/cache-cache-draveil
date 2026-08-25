@@ -1,233 +1,596 @@
-:root {
-  --bg-color: #121212;
-  --card-bg: #1e1e1e;
-  --primary: #ff4757;
-  --secondary: #2ed573;
-  --text: #ffffff;
-  --warning: #ffa500;
-}
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-* { 
-  box-sizing: border-box; 
-  margin: 0; 
-  padding: 0; 
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
-}
+  <title>Chat & Souris</title>
 
-body { 
-  background-color: var(--bg-color); 
-  color: var(--text); 
-  display: flex; 
-  justify-content: center; 
-  height: 100vh; 
-  overflow: hidden; 
-}
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    crossorigin=""
+  >
 
-.screen { 
-  display: none; 
-  width: 100%; 
-  max-width: 500px; 
-  height: 100vh; 
-  flex-direction: column; 
-  background: var(--card-bg); 
-  padding: 20px; 
-  position: relative; 
-}
+  <link rel="stylesheet" href="style.css">
+</head>
 
-.screen.active { 
-  display: flex; 
-}
+<body>
 
-h1, h2 { 
-  text-align: center; 
-  margin-bottom: 15px; 
-  color: var(--primary); 
-}
+<div id="app">
 
-.form-group { 
-  margin-bottom: 15px; 
-  display: flex; 
-  flex-direction: column; 
-  gap: 5px; 
-}
+  <!-- ============================= -->
+  <!-- ACCUEIL -->
+  <!-- ============================= -->
 
-label { 
-  font-size: 0.9rem; 
-  color: #ccc; 
-}
+  <section id="homeScreen" class="screen active">
 
-input, select, button { 
-  padding: 12px; 
-  border-radius: 8px; 
-  border: none; 
-  font-size: 1rem; 
-}
+    <div class="home-card">
 
-input { 
-  background: #2c2c2c; 
-  color: white; 
-  border: 1px solid #444; 
-}
+      <div class="logo">
+        🐱 <span>CHAT</span>
+        <b>&</b>
+        <span class="mouse-title">SOURIS</span> 🐭
+      </div>
 
-.btn { 
-  background: var(--primary); 
-  color: white; 
-  font-weight: bold; 
-  cursor: pointer; 
-  transition: 0.2s; 
-}
+      <p class="subtitle">
+        Jeu de cache-cache géolocalisé en temps réel
+      </p>
 
-.btn:hover { 
-  opacity: 0.9; 
-}
+      <div id="errorMessage" class="error hidden"></div>
 
-.btn-secondary { 
-  background: #57606f; 
-}
+      <div class="form-group">
 
-.btn-success { 
-  background: var(--secondary); 
-}
+        <label for="nickname">
+          Pseudonyme
+        </label>
 
-.color-picker { 
-  display: flex; 
-  gap: 10px; 
-  justify-content: center; 
-  margin-bottom: 15px; 
-}
+        <input
+          id="nickname"
+          type="text"
+          maxlength="20"
+          placeholder="Ton pseudo"
+        >
 
-.color-btn { 
-  width: 35px; 
-  height: 35px; 
-  border-radius: 50%; 
-  cursor: pointer; 
-  border: 2px solid transparent; 
-}
+      </div>
 
-.color-btn.selected { 
-  border-color: white; 
-  transform: scale(1.1); 
-}
+      <div class="form-group">
 
-.role-selector { 
-  display: flex; 
-  gap: 10px; 
-}
+        <label for="markerColor">
+          Couleur de ton marqueur
+        </label>
 
-.role-btn { 
-  flex: 1; 
-  padding: 10px; 
-  background: #2c2c2c; 
-  color: white; 
-  border: 1px solid #444; 
-  cursor: pointer; 
-  text-align: center; 
-  border-radius: 8px; 
-}
+        <input
+          id="markerColor"
+          type="color"
+          value="#2563eb"
+        >
 
-.role-btn.selected { 
-  background: var(--primary); 
-  font-weight: bold; 
-}
+      </div>
 
-/* Carte et Surimpressions */
-#app-container { 
-  padding: 0; 
-}
+      <div class="form-group">
 
-#map-header { 
-  position: absolute; 
-  top: 10px; 
-  left: 10px; 
-  right: 10px; 
-  z-index: 1000; 
-  background: rgba(30, 30, 30, 0.95); 
-  padding: 12px 15px; 
-  border-radius: 12px; 
-  display: flex; 
-  justify-content: space-between; 
-  align-items: center; 
-  backdrop-filter: blur(5px); 
-  border: 1px solid #333;
-}
+        <label for="role">
+          Choisis ton rôle
+        </label>
 
-#timer-display { 
-  font-size: 1.2rem; 
-  font-weight: bold; 
-  color: var(--primary); 
-}
+        <select id="role">
 
-#shrink-timer {
-  font-size: 0.8rem;
-  color: var(--secondary);
-  font-weight: bold;
-}
+          <option value="chat">
+            🐱 Chat
+          </option>
 
-#status-text { 
-  font-size: 0.85rem; 
-  color: #ddd; 
-}
+          <option value="mouse">
+            🐭 Souris
+          </option>
 
-#map { 
-  width: 100%; 
-  flex: 1; 
-  z-index: 1; 
-}
+        </select>
 
-/* MARGE DE SÉCURITÉ MOBILE (Rehaussée) */
-#map-controls { 
-  position: absolute; 
-  bottom: calc(30px + env(safe-area-inset-bottom, 15px)); 
-  left: 15px; 
-  right: 15px; 
-  z-index: 1000; 
-  display: flex; 
-  flex-direction: column; 
-  gap: 12px; 
-}
+      </div>
 
-/* Écran d'attente aveugle pour le chercheur pendant la cachette */
-#seeker-blind-overlay {
-  position: absolute;
-  top: 0; left: 0; right: 0; bottom: 0;
-  background: #000;
-  z-index: 2000;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  text-align: center;
-  padding: 20px;
-}
+      <div class="form-group">
 
-#tab-challenges { 
-  background: rgba(30, 30, 30, 0.95); 
-  padding: 15px; 
-  border-radius: 12px; 
-  border: 1px solid #333;
-}
+        <label for="hideTime">
+          Temps de cachette
+        </label>
 
-.screen-warning-blink {
-  animation: blink-orange 1s infinite alternate;
-}
+        <select id="hideTime">
 
-@keyframes blink-orange {
-  0% { box-shadow: inset 0 0 0px var(--warning); }
-  100% { box-shadow: inset 0 0 45px var(--warning); }
-}
+          <option value="1">
+            1 minute — test
+          </option>
 
-.photo-card { 
-  background: #2c2c2c; 
-  border-radius: 8px; 
-  padding: 10px; 
-  margin-bottom: 10px; 
-  text-align: center; 
-}
+          <option value="5" selected>
+            5 minutes
+          </option>
 
-.photo-card img { 
-  width: 100%; 
-  max-height: 200px; 
-  object-fit: cover; 
-  border-radius: 6px; 
-  margin: 10px 0; 
-}
+          <option value="10">
+            10 minutes
+          </option>
+
+          <option value="15">
+            15 minutes
+          </option>
+
+          <option value="20">
+            20 minutes
+          </option>
+
+          <option value="30">
+            30 minutes
+          </option>
+
+        </select>
+
+      </div>
+
+      <button
+        id="createRoomButton"
+        class="main-button"
+      >
+        🎮 Créer une partie
+      </button>
+
+      <div class="separator">
+        OU
+      </div>
+
+      <div class="join-container">
+
+        <input
+          id="roomCode"
+          type="text"
+          maxlength="8"
+          placeholder="CODE"
+        >
+
+        <button id="joinRoomButton">
+          Rejoindre
+        </button>
+
+      </div>
+
+    </div>
+
+  </section>
+
+
+  <!-- ============================= -->
+  <!-- SALON -->
+  <!-- ============================= -->
+
+  <section id="lobbyScreen" class="screen">
+
+    <div class="lobby-card">
+
+      <h1>
+        🎮 Salon
+      </h1>
+
+      <div class="room-code-display">
+        <span id="displayRoomCode">
+          ------
+        </span>
+      </div>
+
+      <p>
+        Partage ce code avec l'autre joueur.
+      </p>
+
+      <div class="players-container">
+
+        <div class="player-box">
+
+          <div class="player-icon">
+            🐱
+          </div>
+
+          <div>
+
+            <strong>
+              Chat
+            </strong>
+
+            <span id="chatPlayerName">
+              En attente...
+            </span>
+
+            <small id="chatReady">
+              En attente
+            </small>
+
+          </div>
+
+        </div>
+
+
+        <div class="player-box">
+
+          <div class="player-icon">
+            🐭
+          </div>
+
+          <div>
+
+            <strong>
+              Souris
+            </strong>
+
+            <span id="mousePlayerName">
+              En attente...
+            </span>
+
+            <small id="mouseReady">
+              En attente
+            </small>
+
+          </div>
+
+        </div>
+
+      </div>
+
+      <button
+        id="readyButton"
+        class="main-button"
+      >
+        ✅ Je suis prêt
+      </button>
+
+      <button
+        id="leaveRoomButton"
+        class="secondary-button"
+      >
+        Quitter
+      </button>
+
+    </div>
+
+  </section>
+
+
+  <!-- ============================= -->
+  <!-- JEU -->
+  <!-- ============================= -->
+
+  <section id="gameScreen" class="screen game-screen">
+
+    <div id="map"></div>
+
+
+    <!-- BARRE SUPÉRIEURE -->
+
+    <div class="game-header">
+
+      <div id="roleBadge">
+        🐱 CHAT
+      </div>
+
+      <div class="phase-container">
+
+        <span id="phaseText">
+          CACHE-TTE
+        </span>
+
+        <strong id="mainTimer">
+          05:00
+        </strong>
+
+      </div>
+
+      <div>
+        #<span id="gameRoomCode"></span>
+      </div>
+
+    </div>
+
+
+    <!-- OVERLAY CACHE-TTE -->
+
+    <div
+      id="hideOverlay"
+      class="hide-overlay"
+    >
+
+      <div class="hide-card">
+
+        <div class="hide-icon">
+          🙈
+        </div>
+
+        <h1>
+          Phase de cachette
+        </h1>
+
+        <p>
+          La chasse commence dans
+        </p>
+
+        <strong id="hideTimer">
+          05:00
+        </strong>
+
+        <p id="hideDescription">
+          La Souris doit aller se cacher.
+        </p>
+
+      </div>
+
+    </div>
+
+
+    <!-- ALERTE HORS ZONE -->
+
+    <div
+      id="zoneWarning"
+      class="zone-warning hidden"
+    >
+      ⚠️ VOUS ÊTES HORS-ZONE !
+    </div>
+
+
+    <!-- PANNEAU DÉFIS -->
+
+    <div
+      id="challengePanel"
+      class="side-panel hidden"
+    >
+
+      <div class="panel-header">
+
+        <h2>
+          🎯 Défis
+        </h2>
+
+        <button
+          data-close="challengePanel"
+        >
+          ✕
+        </button>
+
+      </div>
+
+      <div id="challengeList"></div>
+
+      <div
+        id="createChallenge"
+        class="challenge-create"
+      >
+
+        <input
+          id="challengeText"
+          maxlength="160"
+          placeholder="Décris ton défi..."
+        >
+
+        <input
+          id="challengePoints"
+          type="number"
+          min="1"
+          max="1000"
+          value="10"
+        >
+
+        <button
+          id="sendChallengeButton"
+          class="main-button"
+        >
+          Envoyer le défi
+        </button>
+
+        <small>
+          Le défi sera valable pendant 10 minutes.
+        </small>
+
+      </div>
+
+    </div>
+
+
+    <!-- PANNEAU CAPTURE -->
+
+    <div
+      id="capturePanel"
+      class="side-panel hidden"
+    >
+
+      <div class="panel-header">
+
+        <h2>
+          📍 Capture
+        </h2>
+
+        <button
+          data-close="capturePanel"
+        >
+          ✕
+        </button>
+
+      </div>
+
+      <div id="captureContent"></div>
+
+    </div>
+
+
+    <!-- PANNEAU RÉVISION -->
+
+    <div
+      id="reviewPanel"
+      class="side-panel hidden"
+    >
+
+      <div class="panel-header">
+
+        <h2>
+          🖼️ Révision
+        </h2>
+
+        <button
+          data-close="reviewPanel"
+        >
+          ✕
+        </button>
+
+      </div>
+
+      <div id="reviewList"></div>
+
+    </div>
+
+
+    <!-- BARRE OUTILS -->
+
+    <div class="bottom-toolbar">
+
+      <button
+        id="centerButton"
+        title="Recentrer"
+      >
+        🎯
+      </button>
+
+      <button
+        id="challengeButton"
+        title="Défis"
+      >
+        🎯
+
+        <span
+          id="challengeBadge"
+          class="badge hidden"
+        >
+          0
+        </span>
+
+      </button>
+
+      <button
+        id="captureButton"
+        title="Capture"
+      >
+        📍
+      </button>
+
+      <button
+        id="reviewButton"
+        title="Révision"
+        class="hidden"
+      >
+        🖼️
+      </button>
+
+      <button
+        id="finishButton"
+        title="Terminer"
+      >
+        ⏹️
+      </button>
+
+    </div>
+
+  </section>
+
+
+  <!-- ============================= -->
+  <!-- FIN -->
+  <!-- ============================= -->
+
+  <section id="resultScreen" class="screen">
+
+    <div class="result-card">
+
+      <div
+        id="resultIcon"
+        class="result-icon"
+      >
+        🏆
+      </div>
+
+      <h1 id="resultTitle">
+        Partie terminée
+      </h1>
+
+      <p id="resultSubtitle"></p>
+
+      <div class="result-grid">
+
+        <div>
+          <span>
+            🐭 Souris
+          </span>
+
+          <strong id="mouseScore">
+            0
+          </strong>
+
+          <small>
+            points
+          </small>
+        </div>
+
+        <div>
+          <span>
+            ⏱️ Survie
+          </span>
+
+          <strong id="survivalTime">
+            00:00
+          </strong>
+
+          <small>
+            temps officiel
+          </small>
+        </div>
+
+        <div>
+          <span>
+            🐱 Chat
+          </span>
+
+          <strong id="chatScore">
+            0
+          </strong>
+
+          <small>
+            points
+          </small>
+        </div>
+
+      </div>
+
+      <button
+        id="rematchButton"
+        class="main-button"
+      >
+        🔄 Nouvelle partie
+      </button>
+
+      <button
+        id="homeButton"
+        class="secondary-button"
+      >
+        Accueil
+      </button>
+
+    </div>
+
+  </section>
+
+</div>
+
+
+<!-- FIREBASE / APPLICATION -->
+
+<script
+  src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+  crossorigin=""
+></script>
+
+<script
+  type="module"
+  src="app.js"
+></script>
+
+</body>
+</html>
