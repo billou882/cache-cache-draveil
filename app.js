@@ -33,8 +33,6 @@ const CIRCLE_START = 300;
 const CIRCLE_MIN = 50;
 const CIRCLE_MAX = 500;
 const CIRCLE_STEP = 50;
-
-// Délais de 5 minutes (300 000 ms)
 const TIME_5_MIN_MS = 5 * 60 * 1000; 
 const CHALLENGE_TTL_MS = 10 * 60 * 1000;
 const COLORS = ["#f5a623","#4fd1ae","#ff5470","#8fc6ff","#c792ea","#ffd166","#ff8fab","#7bd389"];
@@ -105,6 +103,15 @@ function haversine(lat1,lng1,lat2,lng2){
   const dLat = toRad(lat2-lat1), dLng = toRad(lng2-lng1);
   const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLng/2)**2;
   return 2*R*Math.asin(Math.sqrt(a));
+}
+
+// Génère un centre de cercle aléatoire à une distance (0 à maxOffset) de la position de la Souris
+function generateRandomOffsetCenter(centerLat, centerLng, maxOffsetMeters) {
+  const dist = Math.random() * maxOffsetMeters;
+  const angle = Math.random() * 2 * Math.PI;
+  const dLat = (dist * Math.cos(angle)) / 111111;
+  const dLng = (dist * Math.sin(angle)) / (111111 * Math.cos(centerLat * Math.PI / 180));
+  return { lat: centerLat + dLat, lng: centerLng + dLng };
 }
 
 function makeCode(){
@@ -337,7 +344,10 @@ function startGeolocation(){
       update(ref(db, `rooms/${state.roomCode}/players/${uid}`), { lat, lng, updatedAt: now });
     }
     
-    // Vérifier les règles de zone si on est le Chat
+    // Si on est la Souris, on gère la glisse du cercle
+    if (state.role === 'mouse') handleMouseCircleSlide(lat, lng);
+
+    // Si on est le Chat, on gère l'affichage du chrono et de la zone
     if (state.role === 'chat') handleZoneLogic(lat, lng);
   }, err=>{
     toast("Erreur GPS : " + err.message);
@@ -406,17 +416,22 @@ async function tryStartHunt(){
     if (cur === 'hiding') return 'hunting';
     return cur;
   });
+
   await runTransaction(ref(db, `rooms/${state.roomCode}/circle`), cur=>{
     if (cur) return cur;
-    // initialisation de la zone avec minuteurs dedans/dehors
+
+    // Décalage aléatoire au démarrage (jusqu'à 70% du rayon)
+    const initCenter = generateRandomOffsetCenter(mouse.lat, mouse.lng, CIRCLE_START * 0.7);
+
     return { 
-      lat: mouse.lat, 
-      lng: mouse.lng, 
+      lat: initCenter.lat, 
+      lng: initCenter.lng, 
       radius: CIRCLE_START, 
       outOfZoneSince: null, 
       inZoneSince: Date.now() 
     };
   });
+
   await runTransaction(ref(db, `rooms/${state.roomCode}/huntStartAt`), cur=>{
     if (cur) return cur;
     return Date.now();
@@ -434,8 +449,28 @@ function renderCircle(){
   }).addTo(state.map);
 }
 
-// NOURA-LOGIQUE: GÈRE L'AGRANDISSEMENT ET LE RÉTRÉCISSEMENT SELON LA PRÉSENCE DU CHAT
-function handleZoneLogic(lat, lng){
+// SI LA SOURIS ATOUCHE LE BORD DE SA ZONE, LE CERCLE GLISSE
+function handleMouseCircleSlide(mLat, mLng) {
+  const c = roomData.circle;
+  if (!c || !c.lat || roomData.phase !== 'hunting') return;
+
+  const dist = haversine(mLat, mLng, c.lat, c.lng);
+  
+  // Si la Souris sort du rayon du cercle, le centre est ajusté (effet glissement)
+  if (dist > c.radius) {
+    const angle = Math.atan2(mLng - c.lng, mLat - c.lat);
+    const dLat = (dist - c.radius) * Math.cos(angle) / 111111;
+    const dLng = (dist - c.radius) * Math.sin(angle) / (111111 * Math.cos(mLat * Math.PI / 180));
+    
+    update(ref(db, `rooms/${state.roomCode}/circle`), {
+      lat: c.lat + dLat,
+      lng: c.lng + dLng
+    });
+  }
+}
+
+// GESTION DU RÉTRÉCISSEMENT ET AGRANDISSEMENT POUR LE CHAT
+async function handleZoneLogic(lat, lng){
   const c = roomData.circle;
   if (!c || !c.lat || roomData.phase !== 'hunting') return;
   
@@ -447,17 +482,14 @@ function handleZoneLogic(lat, lng){
   banner.style.display = 'flex';
 
   if (outside) {
-    // --- LE CHAT EST HORS DE LA ZONE ---
     banner.className = "ooz-banner danger";
-    
     if (c.outOfZoneSince == null) {
-      // Entrée hors zone : on démarre le chrono de sortie et réinitialise le chrono intérieur
       update(ref(db, `rooms/${state.roomCode}/circle`), { outOfZoneSince: now, inZoneSince: null });
       $('ooz-text').textContent = "⚠️ VOUS ÊTES HORS-ZONE ! REVENEZ DANS LE CERCLE !";
     } else {
       const remain = TIME_5_MIN_MS - (now - c.outOfZoneSince);
       if (remain <= 0) {
-        // 5 minutes dépassées dehors : La zone s'agrandit de 50m !
+        // Hors-zone > 5 min : Le cercle s'agrandit
         const newRadius = Math.min(CIRCLE_MAX, c.radius + CIRCLE_STEP);
         update(ref(db, `rooms/${state.roomCode}/circle`), { radius: newRadius, outOfZoneSince: now });
         toast(`⚠️ Hors-zone depuis 5 min ! La zone s'agrandit à ${newRadius}m`);
@@ -467,20 +499,34 @@ function handleZoneLogic(lat, lng){
     }
 
   } else {
-    // --- LE CHAT EST DANS LA ZONE ---
     banner.className = "ooz-banner ok";
-
     if (c.inZoneSince == null) {
-      // Retour dans la zone : on relance le chrono intérieur et coupe le chrono de sortie
       update(ref(db, `rooms/${state.roomCode}/circle`), { inZoneSince: now, outOfZoneSince: null });
       $('ooz-text').textContent = "✅ VOUS ÊTES DANS LA ZONE";
     } else {
       const remain = TIME_5_MIN_MS - (now - c.inZoneSince);
       if (remain <= 0) {
-        // 5 minutes d'affilée dans la zone : Elle se rétrécit de 50m !
+        // Dans la zone > 5 min : Le cercle se rétrécit ET se régénère aléatoirement autour de la Souris
         const newRadius = Math.max(CIRCLE_MIN, c.radius - CIRCLE_STEP);
-        update(ref(db, `rooms/${state.roomCode}/circle`), { radius: newRadius, inZoneSince: now });
-        toast(`🎯 5 min dans la zone ! Le cercle se rétrécit à ${newRadius}m`);
+        
+        // Récupérer la dernière position connue de la Souris pour recalculer le centre
+        const playersSnap = await get(ref(db, `rooms/${state.roomCode}/players`));
+        const players = playersSnap.val() || {};
+        const mouse = Object.values(players).find(p => p.role === 'mouse');
+
+        let newCenter = { lat: c.lat, lng: c.lng };
+        if (mouse && mouse.lat != null) {
+          // Nouveau centre aléatoire (au maximum à 60% du nouveau rayon de la souris)
+          newCenter = generateRandomOffsetCenter(mouse.lat, mouse.lng, newRadius * 0.6);
+        }
+
+        update(ref(db, `rooms/${state.roomCode}/circle`), { 
+          lat: newCenter.lat,
+          lng: newCenter.lng,
+          radius: newRadius, 
+          inZoneSince: now 
+        });
+        toast(`🎯 5 min dans la zone ! Le cercle rétrécit à ${newRadius}m et s'est déplacé.`);
       } else {
         $('ooz-text').textContent = `🎯 DANS LA ZONE. Rétrécissement (-50m) dans ${fmtMMSS(remain)}`;
       }
