@@ -1,5 +1,5 @@
-import { initializeApp } from "firebase/app";
-import { getDatabase, ref, set, onValue, update } from "firebase/database";
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
 // Configuration Firebase
 const firebaseConfig = {
@@ -17,142 +17,142 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 
-// Variables globales du jeu
-let currentRole = null; // 'mouse' ou 'cat'
-let roomCode = '1234';
-let myPosition = null;
-let catPosition = null;
-let circleRadius = 200; // Rayon initial en mètres
-let circleCenter = null;
+// ID Joueur unique pour la session
+const playerId = 'player_' + Math.random().toString(36).substr(2, 9);
+let myRole = null;
+let timerInterval = null;
+let secondsElapsed = 0;
+let markers = {};
+let zoneCircle = null;
+let inBuilding = false;
 
-// Initialisation de la Carte Leaflet
-const map = L.map('map').setView([48.68, 2.40], 15); // Centre par défaut (Draveil)
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  maxZoom: 19,
-  attribution: '© OpenStreetMap'
+// Coordonnées de base (Draveil)
+const baseLat = 48.6828;
+const baseLng = 2.4081;
+
+// Initialisation Carte Leaflet
+const map = L.map('map', { zoomControl: false }).setView([baseLat, baseLng], 15);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+
+// Cercle de Zone Rétrécissable & Glissant
+zoneCircle = L.circle([baseLat, baseLng], {
+  color: '#38bdf8',
+  fillColor: '#0284c7',
+  fillOpacity: 0.15,
+  weight: 2,
+  radius: 400
 }).addTo(map);
 
-let playerMarker = null;
-let zoneCircle = null;
+// Éléments du DOM
+const roleBadge = document.getElementById('role-badge');
+const timerEl = document.getElementById('timer');
+const btnSouris = document.getElementById('btn-souris');
+const btnChat = document.getElementById('btn-chat');
+const btnHotel = document.getElementById('btn-hotel');
+const btnZone = document.getElementById('btn-zone');
 
-// Gestion de la Géolocalisation GPS
-if (navigator.geolocation) {
-  navigator.geolocation.watchPosition(
-    (pos) => {
-      myPosition = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-      updatePlayerMarker(myPosition);
-      syncPositionToFirebase(myPosition);
-      
-      // La Souris gère l'ajustement du cercle si elle en sort
-      if (currentRole === 'mouse') {
-        manageCircleBoundary();
-      }
-    },
-    (err) => console.error("Erreur GPS :", err),
-    { enableHighAccuracy: true }
-  );
-}
-
-// Mise à jour du marqueur sur la carte
-function updatePlayerMarker(pos) {
-  if (!playerMarker) {
-    playerMarker = L.marker([pos.lat, pos.lng]).addTo(map);
-  } else {
-    playerMarker.setLatLng([pos.lat, pos.lng]);
+// Synchronisation de la Zone en Temps Réel
+onValue(ref(db, 'zone'), (snapshot) => {
+  const data = snapshot.val();
+  if (data && zoneCircle) {
+    zoneCircle.setLatLng([data.lat, data.lng]);
+    zoneCircle.setRadius(data.radius);
   }
-  map.panTo([pos.lat, pos.lng]);
+});
+
+// Déplacement et rétrécissement de la zone
+function moveZoneRandomly() {
+  const currentCenter = zoneCircle.getLatLng();
+  const currentRadius = zoneCircle.getRadius();
+  
+  // Décalage aléatoire (~200m - 300m)
+  const randomLat = currentCenter.lat + (Math.random() - 0.5) * 0.006;
+  const randomLng = currentCenter.lng + (Math.random() - 0.5) * 0.006;
+  const newRadius = Math.max(100, currentRadius * 0.8);
+
+  set(ref(db, 'zone'), {
+    lat: randomLat,
+    lng: randomLng,
+    radius: newRadius,
+    updatedAt: Date.now()
+  });
 }
 
-// Synchronisation de la position GPS vers Firebase
-function syncPositionToFirebase(pos) {
-  if (!currentRole) return;
-  set(ref(db, `rooms/${roomCode}/positions/${currentRole}`), pos);
-}
+// Gestion des rôles
+btnSouris.addEventListener('click', () => joinGame('souris'));
+btnChat.addEventListener('click', () => joinGame('chat'));
+btnZone.addEventListener('click', moveZoneRandomly);
 
-// Rejoindre un rôle
-document.getElementById('btnMouse').addEventListener('click', () => joinGame('mouse'));
-document.getElementById('btnCat').addEventListener('click', () => joinGame('cat'));
+btnHotel.addEventListener('click', () => {
+  inBuilding = !inBuilding;
+  if (inBuilding) {
+    btnHotel.textContent = '🏃 Sortir du bâtiment (Reprendre GPS)';
+    btnHotel.style.background = 'rgba(234, 179, 8, 0.2)';
+    btnHotel.style.borderColor = '#eab308';
+  } else {
+    btnHotel.textContent = '🏢 En bâtiment (Pause GPS)';
+    btnHotel.style.background = 'rgba(255, 255, 255, 0.08)';
+    btnHotel.style.borderColor = 'rgba(255, 255, 255, 0.15)';
+  }
+});
 
 function joinGame(role) {
-  currentRole = role;
-  roomCode = document.getElementById('roomInput').value || '1234';
-  document.getElementById('status').innerText = `Rôle : ${role.toUpperCase()}`;
+  myRole = role;
+  roleBadge.textContent = role === 'souris' ? '🐭 Souris' : '🐱 Chat';
+  roleBadge.className = `badge badge-${role}`;
+  
+  btnSouris.disabled = true;
+  btnChat.disabled = true;
+  btnHotel.disabled = false;
+  btnZone.disabled = false;
 
-  // Initialisation des données du joueur
-  set(ref(db, `rooms/${roomCode}/players/${role}`), {
-    ready: true,
-    score: 0
-  });
+  if (role === 'souris') startTimer();
+  
+  // Géolocalisation active
+  if ('geolocation' in navigator) {
+    navigator.geolocation.watchPosition((pos) => {
+      if (!inBuilding) {
+        set(ref(db, 'players/' + playerId), {
+          role: myRole,
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+          updatedAt: Date.now()
+        });
+      }
+    }, (err) => console.error(err), { enableHighAccuracy: true });
+  }
+}
 
-  // Écoute de l'état du cercle
-  onValue(ref(db, `rooms/${roomCode}/circle`), (snapshot) => {
-    const circleData = snapshot.val();
-    if (circleData) {
-      drawCircle(circleData.lat, circleData.lng, circleData.radius);
+function startTimer() {
+  clearInterval(timerInterval);
+  timerInterval = setInterval(() => {
+    secondsElapsed++;
+    const m = String(Math.floor(secondsElapsed / 60)).padStart(2, '0');
+    const s = String(secondsElapsed % 60).padStart(2, '0');
+    timerEl.textContent = `${m}:${s}`;
+  }, 1000);
+}
+
+// Écoute des joueurs sur Firebase
+onValue(ref(db, 'players'), (snapshot) => {
+  const players = snapshot.val();
+  if (!players) return;
+
+  Object.keys(players).forEach((id) => {
+    const p = players[id];
+    const iconColor = p.role === 'souris' ? '#0284c7' : '#e11d48';
+
+    if (!markers[id]) {
+      markers[id] = L.circleMarker([p.lat, p.lng], {
+        radius: 9,
+        fillColor: iconColor,
+        color: '#ffffff',
+        weight: 2,
+        opacity: 1,
+        fillOpacity: 0.9
+      }).addTo(map);
+    } else {
+      markers[id].setLatLng([p.lat, p.lng]);
     }
   });
-
-  // Si c'est la Souris, elle écoute aussi la position du Chat pour ajuster la zone
-  if (currentRole === 'mouse') {
-    onValue(ref(db, `rooms/${roomCode}/positions/cat`), (snapshot) => {
-      catPosition = snapshot.val();
-    });
-
-    // Boucle dynamique toutes les 30 secondes pour agrandir/rétrécir le cercle
-    setInterval(updateCircleRadius, 30000);
-  }
-}
-
-// Dessin / mise à jour du cercle sur Leaflet
-function drawCircle(lat, lng, radius) {
-  if (!zoneCircle) {
-    zoneCircle = L.circle([lat, lng], { radius: radius, color: 'blue' }).addTo(map);
-  } else {
-    zoneCircle.setLatLng([lat, lng]);
-    zoneCircle.setRadius(radius);
-  }
-}
-
-// Gestion du recentrage si la Souris sort du cercle
-function manageCircleBoundary() {
-  if (!myPosition) return;
-
-  if (!circleCenter) {
-    circleCenter = myPosition;
-    updateCircleInFirebase();
-    return;
-  }
-
-  const distance = map.distance([myPosition.lat, myPosition.lng], [circleCenter.lat, circleCenter.lng]);
-  if (distance > circleRadius) {
-    circleCenter = myPosition;
-    updateCircleInFirebase();
-  }
-}
-
-// Ajustement dynamique du rayon (Toutes les 30s - exécuté par la Souris)
-function updateCircleRadius() {
-  if (!catPosition || !circleCenter) return;
-
-  const distanceCat = map.distance([catPosition.lat, catPosition.lng], [circleCenter.lat, circleCenter.lng]);
-
-  if (distanceCat <= circleRadius) {
-    // Chat à l'intérieur : Rétrécissement (-50m)
-    circleRadius = Math.max(50, circleRadius - 50);
-  } else {
-    // Chat à l'extérieur : Agrandissement (+50m)
-    circleRadius = Math.min(400, circleRadius + 50);
-  }
-
-  updateCircleInFirebase();
-}
-
-// Mise à jour du cercle dans Firebase
-function updateCircleInFirebase() {
-  if (!circleCenter) return;
-  update(ref(db, `rooms/${roomCode}/circle`), {
-    lat: circleCenter.lat,
-    lng: circleCenter.lng,
-    radius: circleRadius
-  });
-}
+});
