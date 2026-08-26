@@ -1,8 +1,7 @@
 // ==========================================
-// CACHE-CACHE GPS — VERSION 1.92
+// CACHE-CACHE GPS — VERSION V81
 // ==========================================
 
-// --- 1. CONFIGURATION FIREBASE ---
 const firebaseConfig = {
   apiKey: "AIzaSyBcxudeQK91giQA5kzSa6wnFZzJIgODjq8",
   authDomain: "cache-cache-draveil.firebaseapp.com",
@@ -13,14 +12,11 @@ const firebaseConfig = {
   appId: "1:809078029731:web:83e384a38ce01254016e16"
 };
 
-if (!firebase.apps.length) {
-  firebase.initializeApp(firebaseConfig);
-}
+if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 
-// --- 2. VARIABLES GLOBALES ---
 let roomCode = null;
-let myRole = null; // 'mouse' ou 'cat'
+let myRole = null;
 let myName = "Joueur";
 let myColor = "#38bdf8";
 
@@ -34,17 +30,15 @@ const RADIUS_MIN = 50;
 let circleCenter = null;
 let circleRadius = RADIUS_MAX;
 
-const CIRCLE_COLOR = "#1e3a8a"; // BLEU MARINE
-
 let gameStartTime = null;
 let hideDurationMinutes = 5;
 let isHidingPhase = true;
-
 let gameLoopTimer = null;
+
 let activeChallenges = {};
 let currentChallengeForPhoto = null;
+let lastStepCalculated = -1;
 
-// --- 3. CALCUL DE DISTANCE (METRES) ---
 function getDistanceInMeters(lat1, lon1, lat2, lon2) {
   const R = 6371000;
   const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -55,7 +49,6 @@ function getDistanceInMeters(lat1, lon1, lat2, lon2) {
   return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
 }
 
-// --- 4. INITIALISATION DOM ---
 document.addEventListener('DOMContentLoaded', () => {
   initRoleButtons();
   initColorButtons();
@@ -65,8 +58,8 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function initRoleButtons() {
-  const btnMouse = document.getElementById('btn-role-hider') || document.getElementById('btn-role-mouse');
-  const btnCat = document.getElementById('btn-role-seeker') || document.getElementById('btn-role-cat');
+  const btnMouse = document.getElementById('btn-role-hider');
+  const btnCat = document.getElementById('btn-role-seeker');
 
   if (btnMouse) {
     btnMouse.onclick = () => {
@@ -204,10 +197,8 @@ function initGameEvents() {
   }
 }
 
-// --- 5. SALLE D'ATTENTE ---
 function enterWaitingRoom() {
-  hideScreen('lobby-screen');
-  hideScreen('podium-screen');
+  hideAllScreens();
   showScreen('waiting-room-screen');
   
   const codeElem = document.getElementById('waiting-room-code');
@@ -231,7 +222,7 @@ function enterWaitingRoom() {
       const p = players[r];
       if (p.ready) countReady++;
       const label = (r === 'mouse') ? '🐭 Souris' : '🐱 Chat';
-      html += `<div style="padding:6px 0; border-bottom:1px solid #eee;"><b>${p.name}</b> (${label}) — ${p.ready ? '✅ Prêt' : '⏳ En attente'}</div>`;
+      html += `<div style="padding:8px; background:rgba(255,255,255,0.05); border-radius:8px;"><b>${p.name}</b> (${label}) — ${p.ready ? '✅ Prêt' : '⏳ En attente'}</div>`;
     }
 
     const listElem = document.getElementById('players-status-list');
@@ -260,11 +251,8 @@ function enterWaitingRoom() {
   });
 }
 
-// --- 6. GESTION DE LA CARTE ET DE LA LOCALISATION ---
 function startGameSession() {
-  hideScreen('waiting-room-screen');
-  hideScreen('review-screen');
-  hideScreen('podium-screen');
+  hideAllScreens();
   showScreen('app-container');
 
   initLeafletMap();
@@ -297,18 +285,14 @@ function startGPS() {
 
     updateMyMarker();
 
-    // DYNAMIQUE DE LA ZONE (SOURIS SEULEMENT)
     if (myRole === 'mouse') {
       if (!circleCenter) {
-        // Décalage aléatoire léger autour de la souris (~100m à 150m) pour ne pas qu'elle soit pile au centre
-        const latOffset = (Math.random() - 0.5) * 0.002;
-        const lngOffset = (Math.random() - 0.5) * 0.002;
-        
+        const latOffset = (Math.random() - 0.5) * 0.0015;
+        const lngOffset = (Math.random() - 0.5) * 0.0015;
         circleCenter = [currentPos[0] + latOffset, currentPos[1] + lngOffset];
-        drawCircleOnMap(circleCenter[0], circleCenter[1], circleRadius);
+        drawCircleOnMap(circleCenter[0], circleCenter[1], circleRadius, myColor);
         syncCircleDb();
       } else {
-        // Glissement du cercle lorsque la souris atteint le bord du cercle
         const dist = getDistanceInMeters(currentPos[0], currentPos[1], circleCenter[0], circleCenter[1]);
         if (dist > circleRadius) {
           const latDiff = currentPos[0] - circleCenter[0];
@@ -319,7 +303,7 @@ function startGPS() {
             circleCenter[0] + (latDiff * moveRatio),
             circleCenter[1] + (lngDiff * moveRatio)
           ];
-          drawCircleOnMap(circleCenter[0], circleCenter[1], circleRadius);
+          drawCircleOnMap(circleCenter[0], circleCenter[1], circleRadius, myColor);
           syncCircleDb();
         }
       }
@@ -332,9 +316,9 @@ function updateMyMarker() {
 
   const customIcon = L.divIcon({
     className: 'custom-dot-container',
-    html: `<div class="user-location-dot" style="background-color: ${myColor};"></div>`,
-    iconSize: [18, 18],
-    iconAnchor: [9, 9]
+    html: `<div style="width:16px; height:16px; background-color:${myColor}; border:2px solid #fff; border-radius:50%; box-shadow:0 0 8px ${myColor};"></div>`,
+    iconSize: [16, 16],
+    iconAnchor: [8, 8]
   });
 
   if (!myMarker) {
@@ -344,21 +328,22 @@ function updateMyMarker() {
   }
 }
 
-// AFFICHAGE DU CERCLE BLEU MARINE UNIQUE POUR TOUS
-function drawCircleOnMap(lat, lng, radius) {
+function drawCircleOnMap(lat, lng, radius, color) {
   if (!map || !lat || !lng) return;
+  const drawColor = color || myColor;
 
   if (!zoneCircleLayer) {
     zoneCircleLayer = L.circle([lat, lng], {
-      color: CIRCLE_COLOR,
-      fillColor: CIRCLE_COLOR,
-      fillOpacity: 0.2,
+      color: drawColor,
+      fillColor: drawColor,
+      fillOpacity: 0.25,
       weight: 3,
       radius: radius
     }).addTo(map);
   } else {
     zoneCircleLayer.setLatLng([lat, lng]);
     zoneCircleLayer.setRadius(radius);
+    zoneCircleLayer.setStyle({ color: drawColor, fillColor: drawColor });
   }
 }
 
@@ -367,20 +352,23 @@ function syncCircleDb() {
     db.ref(`rooms/${roomCode}/circle`).set({
       lat: circleCenter[0],
       lng: circleCenter[1],
-      radius: circleRadius
+      radius: circleRadius,
+      color: myColor
     });
   }
 }
 
-// SYNCHRONISATION EN TEMPS RÉEL DE FIREBASE
 function listenFirebaseGameData() {
   db.ref(`rooms/${roomCode}/circle`).on('value', (snap) => {
     const c = snap.val();
     if (c && c.lat && c.lng) {
       circleCenter = [c.lat, c.lng];
       circleRadius = c.radius || RADIUS_MAX;
-      // Met à jour la carte chez le Chat ET chez la Souris
-      drawCircleOnMap(circleCenter[0], circleCenter[1], circleRadius);
+      const activeColor = c.color || myColor;
+
+      if (myRole === 'mouse' || (myRole === 'cat' && !isHidingPhase)) {
+        drawCircleOnMap(circleCenter[0], circleCenter[1], circleRadius, activeColor);
+      }
     }
   });
 
@@ -402,7 +390,6 @@ function listenFirebaseGameData() {
   });
 }
 
-// --- 7. BOUCLE TEMPS RÉEL (1 SECONDE) ---
 function mainGameLoop() {
   if (!gameStartTime) return;
   const now = Date.now();
@@ -428,61 +415,85 @@ function mainGameLoop() {
     }
   } else {
     const elapsedMs = now - hideEndTime;
-    const elapsedMinutes = Math.floor(elapsedMs / (60 * 1000));
-
+    
     if (isHidingPhase) {
       isHidingPhase = false;
       if (myRole === 'mouse') {
         circleRadius = 300;
         syncCircleDb();
+      } else if (myRole === 'cat' && circleCenter) {
+        drawCircleOnMap(circleCenter[0], circleCenter[1], circleRadius, myColor);
       }
     }
 
     const sec = Math.floor(elapsedMs / 1000);
     const m = String(Math.floor(sec / 60)).padStart(2, '0');
     const s = String(sec % 60).padStart(2, '0');
-
     if (timerDisplay) timerDisplay.innerText = `${m}:${s}`;
 
-    const shrinkSteps = Math.floor(elapsedMinutes / 5);
-    const nextShrinkMs = ((shrinkSteps + 1) * 5 * 60 * 1000) - elapsedMs;
-    const nextSec = Math.max(0, Math.floor(nextShrinkMs / 1000));
-    const mNext = String(Math.floor(nextSec / 60)).padStart(2, '0');
-    const sNext = String(nextSec % 60).padStart(2, '0');
+    const INTERVAL_SEC = 30;
+    const currentStep = Math.floor(sec / INTERVAL_SEC);
+    const nextChangeSec = ((currentStep + 1) * INTERVAL_SEC) - sec;
+    const sNext = String(nextChangeSec).padStart(2, '0');
 
-    if (myRole === 'mouse') {
-      const targetRadius = Math.max(RADIUS_MIN, 300 - (shrinkSteps * 50));
-      if (circleRadius > targetRadius) {
-        circleRadius = targetRadius;
+    if (myRole === 'mouse' && circleCenter && currentStep > lastStepCalculated) {
+      lastStepCalculated = currentStep;
+
+      db.ref(`rooms/${roomCode}/positions/cat`).once('value', (snap) => {
+        const catPos = snap.val();
+        let catInside = false;
+
+        if (catPos && catPos.lat && catPos.lng) {
+          const distCatToCenter = getDistanceInMeters(catPos.lat, catPos.lng, circleCenter[0], circleCenter[1]);
+          if (distCatToCenter <= circleRadius) catInside = true;
+        }
+
+        if (catInside) {
+          circleRadius = Math.max(RADIUS_MIN, circleRadius - 50);
+        } else {
+          circleRadius = Math.min(RADIUS_MAX, circleRadius + 50);
+        }
+
         syncCircleDb();
-      }
+      });
     }
 
     if (statusTxt) {
-      statusTxt.innerText = `Traque en cours ! Rétrécissement (-50m) dans ${mNext}:${sNext}`;
+      db.ref(`rooms/${roomCode}/positions/cat`).once('value', (snap) => {
+        const catPos = snap.val();
+        let isCatIn = false;
+        if (catPos && circleCenter) {
+          const d = getDistanceInMeters(catPos.lat, catPos.lng, circleCenter[0], circleCenter[1]);
+          if (d <= circleRadius) isCatIn = true;
+        }
+
+        if (isCatIn) {
+          statusTxt.innerText = `Chat DANS le cercle ! Rétrécissement (-50m) dans 00:${sNext}`;
+        } else {
+          statusTxt.innerText = `Chat HORS du cercle ! Agrandissement (+50m) dans 00:${sNext}`;
+        }
+      });
     }
   }
 }
 
-// --- 8. DÉFIS ---
 function renderChallengesList() {
-  const container = document.querySelector('.challenges-container');
+  const container = document.getElementById('challenges-list');
   if (!container) return;
 
-  const creationBox = document.getElementById('seeker-challenge-creation');
-  let html = (myRole === 'cat' && creationBox) ? creationBox.outerHTML : '';
   const keys = Object.keys(activeChallenges);
+  let html = '';
 
   if (keys.length === 0) {
-    html += `<div class="challenge-card"><h3>📋 Défis</h3><p>Aucun défi en cours.</p></div>`;
+    html = `<div class="card"><p>Aucun défi actif.</p></div>`;
   } else {
     keys.forEach((key) => {
       const ch = activeChallenges[key];
       html += `
-        <div class="challenge-card">
+        <div class="card" style="margin-bottom:10px;">
           <h3>📋 Défi (${ch.pts} pts)</h3>
-          <p>${ch.text}</p>
-          ${myRole === 'mouse' ? `<button onclick="openCamera('${ch.id}')" class="btn-success">📷 Prendre la photo</button>` : ''}
+          <p style="margin:8px 0; color:var(--text-muted);">${ch.text}</p>
+          ${myRole === 'mouse' ? `<button onclick="openCamera('${ch.id}')" class="btn btn-success">📷 Prendre la photo</button>` : ''}
         </div>
       `;
     });
@@ -517,9 +528,8 @@ window.openCamera = function(challengeId) {
   if (input) input.click();
 };
 
-// --- 9. FIN DE PARTIE & PODIUM ---
 function showReviewScreen() {
-  hideScreen('app-container');
+  hideAllScreens();
   showScreen('review-screen');
 
   db.ref(`rooms/${roomCode}/submittedPhotos`).once('value', (snap) => {
@@ -536,15 +546,15 @@ function showReviewScreen() {
     for (let key in photos) {
       const p = photos[key];
       html += `
-        <div class="challenge-card" style="margin-bottom:12px;">
+        <div class="card" style="margin-bottom:12px;">
           <p><b>${p.challengeText}</b> (${p.pts} pts)</p>
           <img src="${p.photo}" style="width:100%; border-radius:8px; margin:8px 0;">
           ${myRole === 'cat' ? `
             <div style="display:flex; gap:8px;">
-              <button onclick="valPhoto('${key}', true, ${p.pts})" class="btn-success">✅ Valider (+${p.pts} pts)</button>
-              <button onclick="valPhoto('${key}', false, 0)" class="btn-danger">❌ Rejeter</button>
+              <button onclick="valPhoto('${key}', true, ${p.pts})" class="btn btn-success">✅ Valider (+${p.pts} pts)</button>
+              <button onclick="valPhoto('${key}', false, 0)" class="btn btn-danger">❌ Rejeter</button>
             </div>
-          ` : `<p style="font-size:0.85rem; color:#64748b;">En attente du Chat...</p>`}
+          ` : `<p style="font-size:0.85rem; color:var(--text-muted);">En attente du Chat...</p>`}
         </div>
       `;
     }
@@ -561,8 +571,7 @@ window.valPhoto = function(photoKey, accept, pts) {
 };
 
 function showPodiumScreen() {
-  hideScreen('review-screen');
-  hideScreen('app-container');
+  hideAllScreens();
   showScreen('podium-screen');
 
   db.ref(`rooms/${roomCode}/players`).once('value', (snap) => {
@@ -576,7 +585,7 @@ function showPodiumScreen() {
     list.forEach((p, idx) => {
       const medal = idx === 0 ? '🥇' : '🥈';
       html += `
-        <div class="podium-item">
+        <div style="display:flex; justify-content:space-between; padding:12px; background:rgba(255,255,255,0.05); border-radius:10px;">
           <div><b>${medal} ${p.name}</b> (${p.role === 'mouse' ? '🐭 Souris' : '🐱 Chat'})</div>
           <b>${p.score || 0} pts</b>
         </div>
@@ -604,23 +613,17 @@ function resetGame() {
     myMarker = null;
   }
 
-  if (roomCode) {
-    db.ref(`rooms/${roomCode}`).remove();
-  }
+  if (roomCode) db.ref(`rooms/${roomCode}`).remove();
 
-  hideScreen('podium-screen');
-  hideScreen('review-screen');
-  hideScreen('app-container');
+  hideAllScreens();
   showScreen('lobby-screen');
 }
 
-// --- 10. AFFICHAGE ÉCRANS ---
 function showScreen(id) {
   const el = document.getElementById(id);
-  if (el) el.style.display = (id === 'app-container' || id === 'waiting-room-screen' || id === 'review-screen' || id === 'podium-screen' || id === 'lobby-screen') ? 'flex' : 'block';
+  if (el) el.classList.add('active');
 }
 
-function hideScreen(id) {
-  const el = document.getElementById(id);
-  if (el) el.style.display = 'none';
+function hideAllScreens() {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
 }
