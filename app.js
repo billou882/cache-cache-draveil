@@ -88,10 +88,10 @@ function initColorButtons() {
 }
 
 function initNavigation() {
-  document.querySelectorAll('.nav-tab').forEach(tab => {
+  document.querySelectorAll('.tab-btn').forEach(tab => {
     tab.onclick = (e) => {
-      document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
-      document.querySelectorAll('.tab-page').forEach(p => p.classList.remove('active'));
+      document.querySelectorAll('.tab-btn').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(p => p.classList.remove('active'));
 
       e.target.classList.add('active');
       const pageId = e.target.dataset.tab;
@@ -154,7 +154,7 @@ function initGameEvents() {
             photo: ev.target.result
           });
           db.ref(`rooms/${roomCode}/challenges/${currentChallengeForPhoto}`).remove();
-          alert("📸 Photo envoyée au Chat !");
+          alert("📸 Photo envoyée !");
         };
         reader.readAsDataURL(file);
       }
@@ -165,7 +165,7 @@ function initGameEvents() {
   if (btnFound) {
     btnFound.onclick = () => {
       db.ref(`rooms/${roomCode}/roundStatus`).set('CAT_CLAIMED');
-      alert("Alerte envoyée à la Souris.");
+      alert("Alerte envoyée.");
     };
   }
 
@@ -222,7 +222,7 @@ function enterWaitingRoom() {
       const p = players[r];
       if (p.ready) countReady++;
       const label = (r === 'mouse') ? '🐭 Souris' : '🐱 Chat';
-      html += `<div style="padding:8px; background:rgba(255,255,255,0.05); border-radius:8px;"><b>${p.name}</b> (${label}) — ${p.ready ? '✅ Prêt' : '⏳ En attente'}</div>`;
+      html += `<div style="padding:6px; background:#0f172a; border-radius:6px;"><b>${p.name}</b> (${label}) — ${p.ready ? '✅ Prêt' : '⏳ En attente'}</div>`;
     }
 
     const listElem = document.getElementById('players-status-list');
@@ -315,10 +315,10 @@ function updateMyMarker() {
   if (!currentPos || !map) return;
 
   const customIcon = L.divIcon({
-    className: 'custom-dot-container',
-    html: `<div style="width:16px; height:16px; background-color:${myColor}; border:2px solid #fff; border-radius:50%; box-shadow:0 0 8px ${myColor};"></div>`,
-    iconSize: [16, 16],
-    iconAnchor: [8, 8]
+    className: 'custom-dot',
+    html: `<div style="width:14px; height:14px; background-color:${myColor}; border:2px solid #fff; border-radius:50%;"></div>`,
+    iconSize: [14, 14],
+    iconAnchor: [7, 7]
   });
 
   if (!myMarker) {
@@ -336,8 +336,8 @@ function drawCircleOnMap(lat, lng, radius, color) {
     zoneCircleLayer = L.circle([lat, lng], {
       color: drawColor,
       fillColor: drawColor,
-      fillOpacity: 0.25,
-      weight: 3,
+      fillOpacity: 0.2,
+      weight: 2,
       radius: radius
     }).addTo(map);
   } else {
@@ -383,7 +383,7 @@ function listenFirebaseGameData() {
       const btnConfirm = document.getElementById('btn-confirm-hider');
       const statusTxt = document.getElementById('status-text');
       if (btnConfirm) btnConfirm.style.display = 'block';
-      if (statusTxt) statusTxt.innerText = "Le Chat affirme vous avoir attrapé ! Confirmez-vous ?";
+      if (statusTxt) statusTxt.innerText = "Le Chat vous a marqué ! Confirmez-vous ?";
     } else if (status === 'CONFIRMED') {
       db.ref(`rooms/${roomCode}/gameState/phase`).set('REVIEW');
     }
@@ -410,8 +410,8 @@ function mainGameLoop() {
     if (timerDisplay) timerDisplay.innerText = `${m}:${s}`;
     if (statusTxt) {
       statusTxt.innerText = (myRole === 'mouse') 
-        ? `Cachez-vous ! Le Chat arrive dans ${m}:${s}` 
-        : `Patientez, la Souris se cache... (${m}:${s})`;
+        ? `Cache-toi ! Le Chat arrive dans ${m}:${s}` 
+        : `La Souris se cache... (${m}:${s})`;
     }
   } else {
     const elapsedMs = now - hideEndTime;
@@ -485,15 +485,15 @@ function renderChallengesList() {
   let html = '';
 
   if (keys.length === 0) {
-    html = `<div class="card"><p>Aucun défi actif.</p></div>`;
+    html = `<div class="card"><p>Aucun défi en cours.</p></div>`;
   } else {
     keys.forEach((key) => {
       const ch = activeChallenges[key];
       html += `
         <div class="card" style="margin-bottom:10px;">
-          <h3>📋 Défi (${ch.pts} pts)</h3>
-          <p style="margin:8px 0; color:var(--text-muted);">${ch.text}</p>
-          ${myRole === 'mouse' ? `<button onclick="openCamera('${ch.id}')" class="btn btn-success">📷 Prendre la photo</button>` : ''}
+          <h3>📋 ${ch.text}</h3>
+          <p style="color:#94a3b8; margin:4px 0;">Valeur : ${ch.pts} pts</p>
+          ${myRole === 'mouse' ? `<button onclick="openCamera('${ch.id}')" class="btn btn-action">📷 Photo</button>` : ''}
         </div>
       `;
     });
@@ -538,7 +538,7 @@ function showReviewScreen() {
     if (!container) return;
 
     if (!photos) {
-      container.innerHTML = "<p>Aucune photo soumise.</p>";
+      container.innerHTML = "<p>Aucune photo.</p>";
       return;
     }
 
@@ -548,13 +548,13 @@ function showReviewScreen() {
       html += `
         <div class="card" style="margin-bottom:12px;">
           <p><b>${p.challengeText}</b> (${p.pts} pts)</p>
-          <img src="${p.photo}" style="width:100%; border-radius:8px; margin:8px 0;">
+          <img src="${p.photo}" style="width:100%; border-radius:6px; margin:8px 0;">
           ${myRole === 'cat' ? `
             <div style="display:flex; gap:8px;">
-              <button onclick="valPhoto('${key}', true, ${p.pts})" class="btn btn-success">✅ Valider (+${p.pts} pts)</button>
-              <button onclick="valPhoto('${key}', false, 0)" class="btn btn-danger">❌ Rejeter</button>
+              <button onclick="valPhoto('${key}', true, ${p.pts})" class="btn btn-action">✅ Valider</button>
+              <button onclick="valPhoto('${key}', false, 0)" class="btn btn-danger">❌ Refuser</button>
             </div>
-          ` : `<p style="font-size:0.85rem; color:var(--text-muted);">En attente du Chat...</p>`}
+          ` : `<p style="font-size:0.85rem; color:#94a3b8;">Attente de la décision du Chat...</p>`}
         </div>
       `;
     }
@@ -585,8 +585,8 @@ function showPodiumScreen() {
     list.forEach((p, idx) => {
       const medal = idx === 0 ? '🥇' : '🥈';
       html += `
-        <div style="display:flex; justify-content:space-between; padding:12px; background:rgba(255,255,255,0.05); border-radius:10px;">
-          <div><b>${medal} ${p.name}</b> (${p.role === 'mouse' ? '🐭 Souris' : '🐱 Chat'})</div>
+        <div style="display:flex; justify-content:space-between; padding:10px; background:#0f172a; border-radius:6px;">
+          <div><b>${medal} ${p.name}</b> (${p.role === 'mouse' ? 'Souris' : 'Chat'})</div>
           <b>${p.score || 0} pts</b>
         </div>
       `;
@@ -625,5 +625,5 @@ function showScreen(id) {
 }
 
 function hideAllScreens() {
-  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.app-screen').forEach(s => s.classList.remove('active'));
 }
