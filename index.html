@@ -3,29 +3,262 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Cache-Cache GPS</title>
+  <title>Cache-Cache Draveil</title>
   
-  <!-- Leaflet CSS -->
+  <!-- CSS Leaflet pour la carte -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   
-  <!-- Fichier CSS personnalisé -->
-  <link rel="stylesheet" href="style.css" />
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    body {
+      background-color: #0f172a;
+      color: #f8fafc;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* Header & Statut */
+    header {
+      padding: 15px;
+      background-color: #1e293b;
+      text-align: center;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+      z-index: 1000;
+    }
+
+    h1 {
+      font-size: 1.2rem;
+      color: #38bdf8;
+      margin-bottom: 5px;
+    }
+
+    .status-badge {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 0.85rem;
+      font-weight: bold;
+      background-color: #334155;
+      color: #94a3b8;
+    }
+
+    .status-badge.souris { background-color: #0284c7; color: #fff; }
+    .status-badge.chat { background-color: #dc2626; color: #fff; }
+
+    /* Carte */
+    #map {
+      flex: 1;
+      width: 100%;
+      background-color: #1e293b;
+    }
+
+    /* Panneau de contrôle */
+    .controls {
+      padding: 15px;
+      background-color: #1e293b;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      box-shadow: 0 -2px 10px rgba(0,0,0,0.3);
+      z-index: 1000;
+    }
+
+    .timer-card {
+      background-color: #0f172a;
+      padding: 12px;
+      border-radius: 8px;
+      text-align: center;
+      border: 1px solid #334155;
+    }
+
+    .timer-title {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      color: #94a3b8;
+      letter-spacing: 1px;
+    }
+
+    .timer-display {
+      font-size: 2rem;
+      font-weight: bold;
+      color: #f43f5e;
+      font-mono: monospace;
+    }
+
+    .btn-group {
+      display: flex;
+      gap: 10px;
+    }
+
+    button {
+      flex: 1;
+      padding: 12px;
+      border: none;
+      border-radius: 8px;
+      font-weight: bold;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .btn-primary { background-color: #0284c7; color: white; }
+    .btn-danger { background-color: #dc2626; color: white; }
+    .btn-secondary { background-color: #334155; color: white; }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+  </style>
 </head>
 <body>
 
-  <div id="controls">
-    <label>Code Salon : <input type="text" id="roomInput" value="1234"></label>
-    <button id="btnMouse">Rejoindre comme SOURIS</button>
-    <button id="btnCat">Rejoindre comme CHAT</button>
-    <span id="status">Déconnecté</span>
-  </div>
+  <header>
+    <h1>Cache-Cache Draveil</h1>
+    <div id="role-status" class="status-badge">Rôle non défini</div>
+  </header>
 
   <div id="map"></div>
 
-  <!-- Leaflet JS -->
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <div class="controls">
+    <div class="timer-card">
+      <div class="timer-title">Chrono de survie</div>
+      <div id="timer" class="timer-display">00:00</div>
+    </div>
 
-  <!-- Script principal -->
-  <script type="module" src="app.js"></script>
+    <div class="btn-group">
+      <button id="btn-souris" class="btn-primary">Jouer Souris</button>
+      <button id="btn-chat" class="btn-danger">Jouer Chat</button>
+    </div>
+    
+    <button id="btn-hotel" class="btn-secondary" disabled>Je rentre dans un bâtiment</button>
+  </div>
+
+  <!-- Scripts JS : Leaflet & Firebase -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+    import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+
+    // Configuration Firebase
+    const firebaseConfig = {
+      apiKey: "AIzaSyBcxudeQK91giQA5kzSa6wnFZzJIgODjq8",
+      authDomain: "cache-cache-draveil.firebaseapp.com",
+      databaseURL: "https://cache-cache-draveil-default-rtdb.europe-west1.firebasedatabase.app",
+      projectId: "cache-cache-draveil",
+      storageBucket: "cache-cache-draveil.firebasestorage.app",
+      messagingSenderId: "809078029731",
+      appId: "1:809078029731:web:83e384a38ce01254016e16",
+      measurementId: "G-GGFG133013"
+    };
+
+    // Initialisation
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+
+    // Identifiant unique de session du joueur
+    const playerId = 'player_' + Math.random().toString(36).substr(2, 9);
+    let myRole = null;
+    let timerInterval = null;
+    let secondsElapsed = 0;
+    let markers = {};
+
+    // Initialisation de la Carte Leaflet (centrée par défaut sur Draveil)
+    const map = L.map('map').setView([48.6828, 2.4081], 14);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap'
+    }).addTo(map);
+
+    // Éléments UI
+    const roleStatusEl = document.getElementById('role-status');
+    const timerEl = document.getElementById('timer');
+    const btnSouris = document.getElementById('btn-souris');
+    const btnChat = document.getElementById('btn-chat');
+    const btnHotel = document.getElementById('btn-hotel');
+
+    // Gestion de la géolocalisation en temps réel
+    if ('geolocation' in navigator) {
+      navigator.geolocation.watchPosition(
+        (position) => {
+          const { latitude, longitude } = position.coords;
+          if (myRole) {
+            updatePositionInFirebase(latitude, longitude);
+          }
+        },
+        (error) => console.error("Erreur géolocalisation:", error),
+        { enableHighAccuracy: true }
+      );
+    }
+
+    function updatePositionInFirebase(lat, lng) {
+      set(ref(db, 'players/' + playerId), {
+        role: myRole,
+        lat: lat,
+        lng: lng,
+        lastUpdate: Date.now()
+      });
+    }
+
+    // Choix du rôle
+    btnSouris.addEventListener('click', () => setRole('souris'));
+    btnChat.addEventListener('click', () => setRole('chat'));
+
+    function setRole(role) {
+      myRole = role;
+      roleStatusEl.textContent = `Rôle : ${role.toUpperCase()}`;
+      roleStatusEl.className = `status-badge ${role}`;
+      
+      btnSouris.disabled = true;
+      btnChat.disabled = true;
+      btnHotel.disabled = false;
+
+      if (role === 'souris') {
+        startTimer();
+      }
+    }
+
+    // Gestion du chronomètre
+    function startTimer() {
+      clearInterval(timerInterval);
+      timerInterval = setInterval(() => {
+        secondsElapsed++;
+        const mins = String(Math.floor(secondsElapsed / 60)).padStart(2, '0');
+        const secs = String(secondsElapsed % 60).padStart(2, '0');
+        timerEl.textContent = `${mins}:${secs}`;
+      }, 1000);
+    }
+
+    // Écoute des joueurs en temps réel sur la carte
+    onValue(ref(db, 'players'), (snapshot) => {
+      const players = snapshot.val();
+      if (!players) return;
+
+      Object.keys(players).forEach((id) => {
+        const p = players[id];
+        
+        // Création ou mise à jour des marqueurs sur la carte
+        if (!markers[id]) {
+          markers[id] = L.marker([p.lat, p.lng]).addTo(map);
+        } else {
+          markers[id].setLatLng([p.lat, p.lng]);
+        }
+        
+        markers[id].bindPopup(`Joueur (${p.role})`);
+      });
+    });
+
+    // Action "Je rentre dans un bâtiment"
+    btnHotel.addEventListener('click', () => {
+      alert("Statut mis à jour : Tu es à l'abri !");
+    });
+  </script>
 </body>
 </html>
