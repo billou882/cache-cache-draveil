@@ -674,3 +674,12 @@ function resetGame(){
   if (state.wakeLock) state.wakeLock.release();
   location.reload();
 }
+// FORCER L'AFFICHAGE DE L'ÉCRAN D'ACCUEIL AU CHARGEMENT
+window.addEventListener('DOMContentLoaded', () => {
+  // Masque tous les écrans et active uniquement l'accueil
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  const homeScreen = document.getElementById('screen-home');
+  if (homeScreen) {
+    homeScreen.classList.add('active');
+  }
+});
