@@ -1,6 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
-  getDatabase, ref, set, get, update, onValue, push, off,
+  getDatabase, ref, set, get, update, onValue, push,
   onDisconnect, runTransaction
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 import {
@@ -17,9 +17,18 @@ const firebaseConfig = {
   appId: "1:809078029731:web:83e384a38ce01254016e16"
 };
 
-const app = initializeApp(firebaseConfig);
-const db = getDatabase(app);
-const storage = getStorage(app);
+// GESTION ERREURS GLOBALES (Affiche le toast en cas de bug silencieux)
+window.addEventListener('error', (e) => toast(`Erreur: ${e.message}`));
+window.addEventListener('unhandledrejection', (e) => toast(`Erreur Async: ${e.reason}`));
+
+let app, db, storage;
+try {
+  app = initializeApp(firebaseConfig);
+  db = getDatabase(app);
+  storage = getStorage(app);
+} catch(e) {
+  console.error("Erreur d'initialisation Firebase", e);
+}
 
 const CIRCLE_START = 300;
 const CIRCLE_MIN = 50;
@@ -37,8 +46,15 @@ function uuid(){
     return v.toString(16);
   });
 }
-let uid = localStorage.getItem('ccd_uid');
-if (!uid){ uid = uuid(); localStorage.setItem('ccd_uid', uid); }
+
+// SÉCURITÉ LOCALSTORAGE
+let uid;
+try {
+  uid = localStorage.getItem('ccd_uid');
+  if (!uid){ uid = uuid(); localStorage.setItem('ccd_uid', uid); }
+} catch(e) {
+  uid = uuid();
+}
 
 let state = {
   roomCode: null,
@@ -62,24 +78,13 @@ let fileInputEl = null;
 
 function $(id){ return document.getElementById(id); }
 
-// Affiche toute erreur JS ou promesse rejetée au lieu de laisser l'écran figé silencieusement
-window.addEventListener('error', (e)=>{
-  console.error('Erreur JS:', e.error || e.message);
-  toast('⚠️ Erreur JS : ' + (e.message || 'voir la console'), 6000);
-});
-window.addEventListener('unhandledrejection', (e)=>{
-  console.error('Erreur Firebase/Promise:', e.reason);
-  const msg = (e.reason && e.reason.message) ? e.reason.message : String(e.reason);
-  toast('⚠️ Erreur : ' + msg, 6000);
-});
-
 function showScreen(id){
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   const target = $(id);
   if (target) target.classList.add('active');
 }
 
-function toast(msg, ms=2600){
+function toast(msg, ms=3000){
   const t = $('toast');
   if (!t) return;
   t.textContent = msg;
@@ -129,14 +134,14 @@ function selectRole(r){
 }
 
 async function createGame(){
-  const pseudo = $('in-pseudo').value.trim();
-  const hideMin = Math.max(1, parseInt($('in-hide-min').value||'5',10));
-  if (!pseudo){ $('home-err').textContent = 'Choisis un pseudo.'; return; }
-  if (!state.role){ $('home-err').textContent = 'Choisis un rôle (Chat ou Souris).'; return; }
-  $('home-err').textContent = '';
-  state.pseudo = pseudo; state.isHost = true;
-
   try {
+    const pseudo = $('in-pseudo').value.trim();
+    const hideMin = Math.max(1, parseInt($('in-hide-min').value||'5',10));
+    if (!pseudo){ $('home-err').textContent = 'Choisis un pseudo.'; return; }
+    if (!state.role){ $('home-err').textContent = 'Choisis un rôle (Chat ou Souris).'; return; }
+    $('home-err').textContent = '';
+    state.pseudo = pseudo; state.isHost = true;
+
     let code;
     for (let tries=0; tries<8; tries++){
       code = makeCode();
@@ -154,21 +159,20 @@ async function createGame(){
     });
     await writeSelfPlayer();
     await enterWaiting();
-  } catch(e){
-    console.error('Erreur createGame:', e);
-    $('home-err').textContent = 'Erreur Firebase : ' + e.message + ' (vérifie les règles de la base de données)';
+  } catch(e) {
+    toast("Erreur création: " + e.message);
   }
 }
 
 async function joinGame(){
-  const pseudo = $('in-pseudo').value.trim();
-  const code = $('in-join-code').value.trim().toUpperCase();
-  if (!pseudo){ $('home-err').textContent = 'Choisis un pseudo.'; return; }
-  if (!state.role){ $('home-err').textContent = 'Choisis un rôle (Chat ou Souris).'; return; }
-  if (!code){ $('home-err').textContent = 'Entre un code de salon.'; return; }
-  $('home-err').textContent = '';
-
   try {
+    const pseudo = $('in-pseudo').value.trim();
+    const code = $('in-join-code').value.trim().toUpperCase();
+    if (!pseudo){ $('home-err').textContent = 'Choisis un pseudo.'; return; }
+    if (!state.role){ $('home-err').textContent = 'Choisis un rôle (Chat ou Souris).'; return; }
+    if (!code){ $('home-err').textContent = 'Entre un code de salon.'; return; }
+    $('home-err').textContent = '';
+
     const snap = await get(ref(db, `rooms/${code}`));
     if (!snap.exists()){ $('home-err').textContent = "Ce salon n'existe pas."; return; }
     const room = snap.val();
@@ -181,9 +185,8 @@ async function joinGame(){
     state.pseudo = pseudo; state.roomCode = code; state.isHost = false;
     await writeSelfPlayer();
     await enterWaiting();
-  } catch(e){
-    console.error('Erreur joinGame:', e);
-    $('home-err').textContent = 'Erreur Firebase : ' + e.message + ' (vérifie les règles de la base de données)';
+  } catch(e) {
+    toast("Erreur connexion: " + e.message);
   }
 }
 
@@ -196,12 +199,11 @@ async function writeSelfPlayer(){
   onDisconnect(ref(db, `rooms/${state.roomCode}/players/${uid}/connected`)).set(false);
 }
 
-/* WAITING ROOM */
 async function enterWaiting(){
   showScreen('screen-wait');
   $('wait-code').textContent = state.roomCode;
   $('wait-code').onclick = ()=>{
-    navigator.clipboard?.writeText(state.roomCode).then(()=>toast('Code copié !'));
+    if (navigator.clipboard) navigator.clipboard.writeText(state.roomCode).then(()=>toast('Code copié !'));
   };
 
   const pRef = ref(db, `rooms/${state.roomCode}/players`);
@@ -214,7 +216,9 @@ async function enterWaiting(){
   const phaseRef = ref(db, `rooms/${state.roomCode}/phase`);
   onValue(phaseRef, (snap)=>{
     const phase = snap.val();
-    if (phase === 'hiding' || phase === 'hunting') enterGame();
+    if ((phase === 'hiding' || phase === 'hunting') && state.roomCode && state.role) {
+      enterGame();
+    }
   });
 
   $('btn-ready').onclick = async ()=>{
@@ -226,6 +230,7 @@ async function enterWaiting(){
 
 function renderWaitPlayers(players){
   const wrap = $('wait-players');
+  if (!wrap) return;
   wrap.innerHTML = '';
   const list = Object.values(players);
   ['chat','mouse'].forEach(role=>{
@@ -270,50 +275,51 @@ async function maybeStartGame(players){
   }
 }
 
-/* GAME SCREEN */
 async function enterGame(){
+  if (!state.roomCode || !state.role) {
+    showScreen('screen-home');
+    return;
+  }
+  
   if (state.gameStarted) return;
   state.gameStarted = true;
-  try {
-    showScreen('screen-game');
-    requestWakeLock();
+  showScreen('screen-game');
+  requestWakeLock();
 
-    $('gt-code').textContent = 'SALON ' + state.roomCode;
-    $('gt-role-chip').textContent = state.role==='chat' ? '🐱 CHAT' : '🐭 SOURIS';
-    $('gt-role-chip').className = `role-chip ${state.role==='chat'?'chat':'mouse'}`;
+  $('gt-code').textContent = 'SALON ' + state.roomCode;
+  $('gt-role-chip').textContent = state.role==='chat' ? '🐱 CHAT' : '🐭 SOURIS';
+  $('gt-role-chip').className = `role-chip ${state.role==='chat'?'chat':'mouse'}`;
 
-    initMap();
+  initMap();
 
-    // Force Leaflet à recalculer sa taille après le changement d'écran
-    setTimeout(() => {
-      if (state.map) state.map.invalidateSize();
-    }, 300);
+  setTimeout(() => {
+    if (state.map) state.map.invalidateSize();
+  }, 300);
 
-    startGeolocation();
-    listenRoom();
-    listenChallenges();
-    setupTabs();
-    setupChallengeForm();
-    setupCapture();
+  startGeolocation();
+  listenRoom();
+  listenChallenges();
+  setupTabs();
+  setupChallengeForm();
+  setupCapture();
 
-    if (state.role === 'chat'){
-      if (state.catInterval) clearInterval(state.catInterval);
-      state.catInterval = setInterval(catTick, 4000);
-    }
-  } catch(e){
-    console.error('Erreur enterGame:', e);
-    toast('⚠️ Erreur au démarrage de la partie : ' + e.message, 6000);
-    state.gameStarted = false;
+  if (state.role === 'chat'){
+    if (state.catInterval) clearInterval(state.catInterval);
+    state.catInterval = setInterval(catTick, 4000);
   }
 }
 
 function initMap(){
-  if (state.map) return;
-  state.map = L.map('map', { zoomControl:false, attributionControl:false }).setView([48.699,2.417], 15);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom:19 }).addTo(state.map);
-  $('btn-recenter').onclick = ()=>{
-    if (state.lastPos) state.map.setView([state.lastPos.lat, state.lastPos.lng], 16);
-  };
+  if (state.map || typeof L === 'undefined') return;
+  try {
+    state.map = L.map('map', { zoomControl:false, attributionControl:false }).setView([48.699,2.417], 15);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom:19 }).addTo(state.map);
+    $('btn-recenter').onclick = ()=>{
+      if (state.lastPos && state.map) state.map.setView([state.lastPos.lat, state.lastPos.lng], 16);
+    };
+  } catch(e) {
+    toast("Erreur Carte: " + e.message);
+  }
 }
 
 function markerIcon(color, emoji){
@@ -327,7 +333,7 @@ function markerIcon(color, emoji){
 }
 
 function startGeolocation(){
-  if (!navigator.geolocation){ toast("GPS indisponible."); return; }
+  if (!navigator.geolocation){ toast("GPS non supporté."); return; }
   state.watchId = navigator.geolocation.watchPosition(pos=>{
     const { latitude:lat, longitude:lng } = pos.coords;
     state.lastPos = { lat, lng };
@@ -344,6 +350,7 @@ function startGeolocation(){
 }
 
 function updateMyMarker(lat,lng){
+  if (!state.map) return;
   if (!state.myMarker){
     state.myMarker = L.marker([lat,lng], { icon: markerIcon(state.color, state.role==='chat'?'🐱':'🐭') }).addTo(state.map);
     state.map.setView([lat,lng], 16);
@@ -353,6 +360,7 @@ function updateMyMarker(lat,lng){
 }
 
 function listenRoom(){
+  if (!state.roomCode) return;
   onValue(ref(db, `rooms/${state.roomCode}`), (snap)=>{
     roomData = snap.val() || {};
     renderPhase();
@@ -414,7 +422,7 @@ async function tryStartHunt(){
 }
 
 function renderCircle(){
-  if (state.role !== 'chat') return;
+  if (state.role !== 'chat' || !state.map) return;
   const c = roomData.circle;
   if (!c || !c.lat) return;
   if (state.circleLayer) state.map.removeLayer(state.circleLayer);
@@ -443,17 +451,16 @@ function checkOutOfZone(lat,lng){
   const now = Date.now();
 
   if (outside){
-    document.body.classList.add('ooz-active');
     banner.style.display = 'flex';
     if (c.radius >= CIRCLE_MAX){
-      $('ooz-text').textContent = 'VOUS ÊTES HORS-ZONE ! La zone est déjà à son maximum.';
+      $('ooz-text').textContent = 'VOUS ÊTES HORS-ZONE ! La zone est au max.';
       if (c.outOfZoneSince != null){
         update(ref(db, `rooms/${state.roomCode}/circle`), { outOfZoneSince: null });
       }
     } else {
       if (c.outOfZoneSince == null){
         update(ref(db, `rooms/${state.roomCode}/circle`), { outOfZoneSince: now });
-        $('ooz-text').textContent = 'VOUS ÊTES HORS-ZONE ! Revenez avant 5 min ou la zone grandit.';
+        $('ooz-text').textContent = 'VOUS ÊTES HORS-ZONE ! Revenez sous 5 min.';
       } else {
         const remain = OOZ_GROW_DELAY_MS - (now - c.outOfZoneSince);
         if (remain <= 0){
@@ -465,7 +472,6 @@ function checkOutOfZone(lat,lng){
       }
     }
   } else {
-    document.body.classList.remove('ooz-active');
     banner.style.display = 'none';
     if (c.outOfZoneSince != null){
       update(ref(db, `rooms/${state.roomCode}/circle`), { outOfZoneSince: null });
@@ -485,7 +491,6 @@ function setupTabs(){
   });
 }
 
-/* DEFIS */
 function setupChallengeForm(){
   if (state.role === 'chat') $('chat-challenge-form').style.display = 'block';
   $('btn-send-challenge').onclick = async ()=>{
@@ -503,6 +508,7 @@ function setupChallengeForm(){
 }
 
 function listenChallenges(){
+  if (!state.roomCode) return;
   onValue(ref(db, `rooms/${state.roomCode}/challenges`), (snap)=>{
     renderChallenges(snap.val() || {});
   });
@@ -510,6 +516,7 @@ function listenChallenges(){
 
 function renderChallenges(data){
   const wrap = $('challenges-list');
+  if (!wrap) return;
   wrap.innerHTML = '';
   const entries = Object.entries(data).sort((a,b)=>b[1].createdAt-a[1].createdAt);
   $('challenges-empty').style.display = entries.length ? 'none' : 'block';
@@ -575,7 +582,6 @@ function openCameraFor(challengeId){
   fileInputEl.click();
 }
 
-/* CAPTURE */
 function setupCapture(){
   if (state.role === 'chat'){
     $('capture-title').textContent = 'Capture';
@@ -583,7 +589,7 @@ function setupCapture(){
     $('btn-declare-capture').style.display = 'block';
     $('btn-declare-capture').onclick = async ()=>{
       await update(ref(db, `rooms/${state.roomCode}/capture`), { requestedByCat:true, requestedAt:Date.now() });
-      toast('Demande envoyée, en attente de confirmation…');
+      toast('Demande envoyée…');
     };
   } else {
     $('capture-title').textContent = 'Capture';
@@ -594,7 +600,7 @@ function setupCapture(){
     const cap = snap.val() || {};
     if (state.role === 'mouse'){
       if (cap.requestedByCat && !cap.confirmed){
-        $('capture-desc').textContent = "Le Chat déclare t'avoir trouvée. Confirme si c'est vrai !";
+        $('capture-desc').textContent = "Le Chat déclare t'avoir trouvée. Confirme !";
         $('btn-confirm-capture').style.display = 'block';
       } else {
         $('btn-confirm-capture').style.display = 'none';
@@ -614,12 +620,12 @@ function setupCapture(){
   };
 }
 
-/* REVIEW & END */
 function renderReview(){
   $('review-title').textContent = state.role==='chat' ? 'Validation des défis' : 'Révision en cours';
   onValue(ref(db, `rooms/${state.roomCode}/challenges`), (snap)=>{
     const data = snap.val() || {};
     const gallery = $('review-gallery');
+    if (!gallery) return;
     gallery.innerHTML = '';
     const submitted = Object.entries(data).filter(([,c])=>c.photoURL);
     $('review-empty').style.display = submitted.length ? 'none' : 'block';
@@ -628,11 +634,11 @@ function renderReview(){
       const div = document.createElement('div');
       div.className = 'gallery-item';
       div.innerHTML = `
-        <img src="${c.photoURL}">
-        <div class="gi-body">
+        <img src="${c.photoURL}" style="width:100%;border-radius:8px;">
+        <div class="gi-body" style="margin-top:8px;">
           <div class="ch-text">${escapeHtml(c.text)}</div>
           <div class="ch-meta">+${c.points} pts</div>
-          <div class="gi-actions"></div>
+          <div class="gi-actions" style="margin-top:5px;"></div>
         </div>`;
       const actions = div.querySelector('.gi-actions');
       if (state.role === 'chat' && c.status === 'submitted'){
@@ -656,21 +662,26 @@ function renderReview(){
   });
 }
 
+$('btn-finish-review').onclick = async ()=>{
+  await update(ref(db, `rooms/${state.roomCode}`), { phase:'ended' });
+};
+
 function renderEnd(){
   const survival = (roomData.capture && roomData.capture.survivalTimeMs) || 0;
   $('end-survival').textContent = fmtMMSS(survival);
   get(ref(db, `rooms/${state.roomCode}/players`)).then(snap=>{
     const players = snap.val() || {};
     const wrap = $('end-scores');
+    if (!wrap) return;
     wrap.innerHTML = '';
     Object.values(players).forEach(p=>{
       const row = document.createElement('div');
-      row.className = 'score-row';
-      row.innerHTML = `<div style="display:flex;align-items:center;gap:10px;">
+      row.className = 'player-slot';
+      row.innerHTML = `<div style="display:flex;align-items:center;gap:10px;width:100%;">
         <div class="dot" style="background:${p.color}"></div>
         <div><div style="font-weight:700;">${escapeHtml(p.pseudo)}</div>
-        <div class="muted" style="font-size:11px;">${p.role==='chat'?'🐱 Chat':'🐭 Souris'}</div></div></div>
-        <div class="sv">${p.score||0} pts</div>`;
+        <div class="muted" style="font-size:11px;">${p.role==='chat'?'🐱 Chat':'🐭 Souris'}</div></div>
+        <div style="margin-left:auto;font-weight:bold;color:var(--mint);">${p.score||0} pts</div></div>`;
       wrap.appendChild(row);
     });
   });
@@ -679,11 +690,10 @@ function renderEnd(){
 function resetGame(){
   if (state.watchId) navigator.geolocation.clearWatch(state.watchId);
   if (state.catInterval) clearInterval(state.catInterval);
-  if (state.wakeLock) state.wakeLock.release();
+  if (state.wakeLock) try{ state.wakeLock.release(); }catch(e){}
   location.reload();
 }
 
-/* INITIALISATION DU DOM (UNIFIÉE) */
 document.addEventListener('DOMContentLoaded', ()=>{
   showScreen('screen-home');
 
@@ -694,7 +704,6 @@ document.addEventListener('DOMContentLoaded', ()=>{
       const s = document.createElement('div');
       s.className = 'swatch' + (i===0?' active':'');
       s.style.background = c;
-      s.style.color = c;
       s.addEventListener('click', ()=>{
         document.querySelectorAll('.swatch').forEach(e=>e.classList.remove('active'));
         s.classList.add('active');
@@ -710,11 +719,4 @@ document.addEventListener('DOMContentLoaded', ()=>{
   $('btn-create').addEventListener('click', createGame);
   $('btn-join').addEventListener('click', joinGame);
   $('btn-new-game').addEventListener('click', resetGame);
-  $('btn-finish-review').addEventListener('click', async ()=>{
-    try {
-      await update(ref(db, `rooms/${state.roomCode}`), { phase:'ended' });
-    } catch(e){
-      toast('⚠️ Erreur : ' + e.message, 6000);
-    }
-  });
 });
