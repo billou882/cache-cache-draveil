@@ -62,6 +62,17 @@ let fileInputEl = null;
 
 function $(id){ return document.getElementById(id); }
 
+// Affiche toute erreur JS ou promesse rejetée au lieu de laisser l'écran figé silencieusement
+window.addEventListener('error', (e)=>{
+  console.error('Erreur JS:', e.error || e.message);
+  toast('⚠️ Erreur JS : ' + (e.message || 'voir la console'), 6000);
+});
+window.addEventListener('unhandledrejection', (e)=>{
+  console.error('Erreur Firebase/Promise:', e.reason);
+  const msg = (e.reason && e.reason.message) ? e.reason.message : String(e.reason);
+  toast('⚠️ Erreur : ' + msg, 6000);
+});
+
 function showScreen(id){
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   const target = $(id);
@@ -125,23 +136,28 @@ async function createGame(){
   $('home-err').textContent = '';
   state.pseudo = pseudo; state.isHost = true;
 
-  let code;
-  for (let tries=0; tries<8; tries++){
-    code = makeCode();
-    const snap = await get(ref(db, `rooms/${code}`));
-    if (!snap.exists()) break;
-  }
-  state.roomCode = code;
+  try {
+    let code;
+    for (let tries=0; tries<8; tries++){
+      code = makeCode();
+      const snap = await get(ref(db, `rooms/${code}`));
+      if (!snap.exists()) break;
+    }
+    state.roomCode = code;
 
-  await set(ref(db, `rooms/${code}`), {
-    createdAt: Date.now(),
-    hideDurationMin: hideMin,
-    phase: 'lobby',
-    circle: null,
-    capture: { requestedByCat:false, confirmed:false }
-  });
-  await writeSelfPlayer();
-  await enterWaiting();
+    await set(ref(db, `rooms/${code}`), {
+      createdAt: Date.now(),
+      hideDurationMin: hideMin,
+      phase: 'lobby',
+      circle: null,
+      capture: { requestedByCat:false, confirmed:false }
+    });
+    await writeSelfPlayer();
+    await enterWaiting();
+  } catch(e){
+    console.error('Erreur createGame:', e);
+    $('home-err').textContent = 'Erreur Firebase : ' + e.message + ' (vérifie les règles de la base de données)';
+  }
 }
 
 async function joinGame(){
@@ -152,18 +168,23 @@ async function joinGame(){
   if (!code){ $('home-err').textContent = 'Entre un code de salon.'; return; }
   $('home-err').textContent = '';
 
-  const snap = await get(ref(db, `rooms/${code}`));
-  if (!snap.exists()){ $('home-err').textContent = "Ce salon n'existe pas."; return; }
-  const room = snap.val();
-  const players = room.players || {};
-  const takenRoles = Object.values(players).filter(p=>p.uid!==uid).map(p=>p.role);
-  if (takenRoles.includes(state.role)){
-    $('home-err').textContent = `Le rôle ${state.role==='chat'?'Chat':'Souris'} est déjà pris.`;
-    return;
+  try {
+    const snap = await get(ref(db, `rooms/${code}`));
+    if (!snap.exists()){ $('home-err').textContent = "Ce salon n'existe pas."; return; }
+    const room = snap.val();
+    const players = room.players || {};
+    const takenRoles = Object.values(players).filter(p=>p.uid!==uid).map(p=>p.role);
+    if (takenRoles.includes(state.role)){
+      $('home-err').textContent = `Le rôle ${state.role==='chat'?'Chat':'Souris'} est déjà pris.`;
+      return;
+    }
+    state.pseudo = pseudo; state.roomCode = code; state.isHost = false;
+    await writeSelfPlayer();
+    await enterWaiting();
+  } catch(e){
+    console.error('Erreur joinGame:', e);
+    $('home-err').textContent = 'Erreur Firebase : ' + e.message + ' (vérifie les règles de la base de données)';
   }
-  state.pseudo = pseudo; state.roomCode = code; state.isHost = false;
-  await writeSelfPlayer();
-  await enterWaiting();
 }
 
 async function writeSelfPlayer(){
@@ -175,7 +196,7 @@ async function writeSelfPlayer(){
   onDisconnect(ref(db, `rooms/${state.roomCode}/players/${uid}/connected`)).set(false);
 }
 
-/* SALON D'ATTENTE SÉCURISÉ */
+/* WAITING ROOM */
 async function enterWaiting(){
   showScreen('screen-wait');
   $('wait-code').textContent = state.roomCode;
@@ -193,10 +214,7 @@ async function enterWaiting(){
   const phaseRef = ref(db, `rooms/${state.roomCode}/phase`);
   onValue(phaseRef, (snap)=>{
     const phase = snap.val();
-    // VÉRIFICATION : Lancement uniquement si le joueur a ses données renseignées
-    if ((phase === 'hiding' || phase === 'hunting') && state.roomCode && state.role) {
-      enterGame();
-    }
+    if (phase === 'hiding' || phase === 'hunting') enterGame();
   });
 
   $('btn-ready').onclick = async ()=>{
@@ -252,40 +270,40 @@ async function maybeStartGame(players){
   }
 }
 
-/* ÉCRAN DE JEU SÉCURISÉ */
+/* GAME SCREEN */
 async function enterGame(){
-  // Redirection automatique sur l'accueil si l'état local est incomplet
-  if (!state.roomCode || !state.role) {
-    showScreen('screen-home');
-    return;
-  }
-  
   if (state.gameStarted) return;
   state.gameStarted = true;
-  showScreen('screen-game');
-  requestWakeLock();
+  try {
+    showScreen('screen-game');
+    requestWakeLock();
 
-  $('gt-code').textContent = 'SALON ' + state.roomCode;
-  $('gt-role-chip').textContent = state.role==='chat' ? '🐱 CHAT' : '🐭 SOURIS';
-  $('gt-role-chip').className = `role-chip ${state.role==='chat'?'chat':'mouse'}`;
+    $('gt-code').textContent = 'SALON ' + state.roomCode;
+    $('gt-role-chip').textContent = state.role==='chat' ? '🐱 CHAT' : '🐭 SOURIS';
+    $('gt-role-chip').className = `role-chip ${state.role==='chat'?'chat':'mouse'}`;
 
-  initMap();
+    initMap();
 
-  // Force le rendu de Leaflet une fois le conteneur visible
-  setTimeout(() => {
-    if (state.map) state.map.invalidateSize();
-  }, 300);
+    // Force Leaflet à recalculer sa taille après le changement d'écran
+    setTimeout(() => {
+      if (state.map) state.map.invalidateSize();
+    }, 300);
 
-  startGeolocation();
-  listenRoom();
-  listenChallenges();
-  setupTabs();
-  setupChallengeForm();
-  setupCapture();
+    startGeolocation();
+    listenRoom();
+    listenChallenges();
+    setupTabs();
+    setupChallengeForm();
+    setupCapture();
 
-  if (state.role === 'chat'){
-    if (state.catInterval) clearInterval(state.catInterval);
-    state.catInterval = setInterval(catTick, 4000);
+    if (state.role === 'chat'){
+      if (state.catInterval) clearInterval(state.catInterval);
+      state.catInterval = setInterval(catTick, 4000);
+    }
+  } catch(e){
+    console.error('Erreur enterGame:', e);
+    toast('⚠️ Erreur au démarrage de la partie : ' + e.message, 6000);
+    state.gameStarted = false;
   }
 }
 
@@ -335,7 +353,6 @@ function updateMyMarker(lat,lng){
 }
 
 function listenRoom(){
-  if (!state.roomCode) return;
   onValue(ref(db, `rooms/${state.roomCode}`), (snap)=>{
     roomData = snap.val() || {};
     renderPhase();
@@ -468,6 +485,7 @@ function setupTabs(){
   });
 }
 
+/* DEFIS */
 function setupChallengeForm(){
   if (state.role === 'chat') $('chat-challenge-form').style.display = 'block';
   $('btn-send-challenge').onclick = async ()=>{
@@ -485,7 +503,6 @@ function setupChallengeForm(){
 }
 
 function listenChallenges(){
-  if (!state.roomCode) return;
   onValue(ref(db, `rooms/${state.roomCode}/challenges`), (snap)=>{
     renderChallenges(snap.val() || {});
   });
@@ -558,6 +575,7 @@ function openCameraFor(challengeId){
   fileInputEl.click();
 }
 
+/* CAPTURE */
 function setupCapture(){
   if (state.role === 'chat'){
     $('capture-title').textContent = 'Capture';
@@ -596,6 +614,7 @@ function setupCapture(){
   };
 }
 
+/* REVIEW & END */
 function renderReview(){
   $('review-title').textContent = state.role==='chat' ? 'Validation des défis' : 'Révision en cours';
   onValue(ref(db, `rooms/${state.roomCode}/challenges`), (snap)=>{
@@ -637,10 +656,6 @@ function renderReview(){
   });
 }
 
-$('btn-finish-review').onclick = async ()=>{
-  await update(ref(db, `rooms/${state.roomCode}`), { phase:'ended' });
-};
-
 function renderEnd(){
   const survival = (roomData.capture && roomData.capture.survivalTimeMs) || 0;
   $('end-survival').textContent = fmtMMSS(survival);
@@ -668,7 +683,7 @@ function resetGame(){
   location.reload();
 }
 
-/* INITIALISATION DOM UNIQUE */
+/* INITIALISATION DU DOM (UNIFIÉE) */
 document.addEventListener('DOMContentLoaded', ()=>{
   showScreen('screen-home');
 
@@ -695,4 +710,11 @@ document.addEventListener('DOMContentLoaded', ()=>{
   $('btn-create').addEventListener('click', createGame);
   $('btn-join').addEventListener('click', joinGame);
   $('btn-new-game').addEventListener('click', resetGame);
+  $('btn-finish-review').addEventListener('click', async ()=>{
+    try {
+      await update(ref(db, `rooms/${state.roomCode}`), { phase:'ended' });
+    } catch(e){
+      toast('⚠️ Erreur : ' + e.message, 6000);
+    }
+  });
 });
