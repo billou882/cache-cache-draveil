@@ -13,7 +13,7 @@
 <div class="toast" id="toast"></div>
 <div id="app">
 
-  <!-- ===================== HOME ===================== -->
+  <!-- HOME -->
   <div class="screen active pad" id="screen-home">
     <div class="brand"><div class="mark">🐾</div><div class="name">CACHE-CACHE · DRAVEIL</div></div>
     <p class="eyebrow">Jeu géolocalisé en temps réel</p>
@@ -40,7 +40,7 @@
       </div>
     </div>
 
-    <div id="create-block">
+    <div id="create-block" style="display:none;">
       <label class="field-label">Durée de la phase de cachette (min)</label>
       <input type="number" id="in-hide-min" min="1" max="60" value="5">
       <div style="height:16px"></div>
@@ -58,7 +58,7 @@
     <div class="err" id="home-err"></div>
   </div>
 
-  <!-- ===================== WAITING ===================== -->
+  <!-- WAITING -->
   <div class="screen pad" id="screen-wait">
     <div class="brand"><div class="mark">🐾</div><div class="name">CACHE-CACHE · DRAVEIL</div></div>
     <p class="eyebrow">Salon d'attente</p>
@@ -75,7 +75,7 @@
     <div class="err" id="wait-err"></div>
   </div>
 
-  <!-- ===================== GAME ===================== -->
+  <!-- GAME -->
   <div class="screen" id="screen-game">
     <div id="game-topbar">
       <div class="gt-left">
@@ -126,7 +126,7 @@
     </div>
   </div>
 
-  <!-- ===================== REVIEW ===================== -->
+  <!-- REVIEW -->
   <div class="screen pad" id="screen-review">
     <div class="brand"><div class="mark">🐾</div><div class="name">CACHE-CACHE · DRAVEIL</div></div>
     <p class="eyebrow">Phase de révision</p>
@@ -137,7 +137,7 @@
     <button class="btn btn-primary" id="btn-finish-review" style="display:none; margin-top:10px;">Voir le bilan</button>
   </div>
 
-  <!-- ===================== END / PODIUM ===================== -->
+  <!-- END / PODIUM -->
   <div class="screen" id="screen-end">
     <div class="podium-wrap">
       <div class="brand"><div class="mark">🏁</div><div class="name">CACHE-CACHE · DRAVEIL</div></div>
@@ -152,10 +152,7 @@
 
 </div>
 
-<!-- Leaflet -->
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-
-<!-- Firebase (modular) + app logic -->
-<script type="module" src="script.js"></script>
+<script type="module" src="app.js"></script>
 </body>
 </html>
