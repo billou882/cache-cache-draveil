@@ -175,7 +175,7 @@ async function writeSelfPlayer(){
   onDisconnect(ref(db, `rooms/${state.roomCode}/players/${uid}/connected`)).set(false);
 }
 
-/* WAITING ROOM */
+/* SALON D'ATTENTE SÉCURISÉ */
 async function enterWaiting(){
   showScreen('screen-wait');
   $('wait-code').textContent = state.roomCode;
@@ -193,7 +193,10 @@ async function enterWaiting(){
   const phaseRef = ref(db, `rooms/${state.roomCode}/phase`);
   onValue(phaseRef, (snap)=>{
     const phase = snap.val();
-    if (phase === 'hiding' || phase === 'hunting') enterGame();
+    // VÉRIFICATION : Lancement uniquement si le joueur a ses données renseignées
+    if ((phase === 'hiding' || phase === 'hunting') && state.roomCode && state.role) {
+      enterGame();
+    }
   });
 
   $('btn-ready').onclick = async ()=>{
@@ -249,8 +252,14 @@ async function maybeStartGame(players){
   }
 }
 
-/* GAME SCREEN */
+/* ÉCRAN DE JEU SÉCURISÉ */
 async function enterGame(){
+  // Redirection automatique sur l'accueil si l'état local est incomplet
+  if (!state.roomCode || !state.role) {
+    showScreen('screen-home');
+    return;
+  }
+  
   if (state.gameStarted) return;
   state.gameStarted = true;
   showScreen('screen-game');
@@ -262,7 +271,7 @@ async function enterGame(){
 
   initMap();
 
-  // Force Leaflet à recalculer sa taille après le changement d'écran
+  // Force le rendu de Leaflet une fois le conteneur visible
   setTimeout(() => {
     if (state.map) state.map.invalidateSize();
   }, 300);
@@ -326,6 +335,7 @@ function updateMyMarker(lat,lng){
 }
 
 function listenRoom(){
+  if (!state.roomCode) return;
   onValue(ref(db, `rooms/${state.roomCode}`), (snap)=>{
     roomData = snap.val() || {};
     renderPhase();
@@ -458,7 +468,6 @@ function setupTabs(){
   });
 }
 
-/* DEFIS */
 function setupChallengeForm(){
   if (state.role === 'chat') $('chat-challenge-form').style.display = 'block';
   $('btn-send-challenge').onclick = async ()=>{
@@ -476,6 +485,7 @@ function setupChallengeForm(){
 }
 
 function listenChallenges(){
+  if (!state.roomCode) return;
   onValue(ref(db, `rooms/${state.roomCode}/challenges`), (snap)=>{
     renderChallenges(snap.val() || {});
   });
@@ -548,7 +558,6 @@ function openCameraFor(challengeId){
   fileInputEl.click();
 }
 
-/* CAPTURE */
 function setupCapture(){
   if (state.role === 'chat'){
     $('capture-title').textContent = 'Capture';
@@ -587,7 +596,6 @@ function setupCapture(){
   };
 }
 
-/* REVIEW & END */
 function renderReview(){
   $('review-title').textContent = state.role==='chat' ? 'Validation des défis' : 'Révision en cours';
   onValue(ref(db, `rooms/${state.roomCode}/challenges`), (snap)=>{
@@ -660,7 +668,7 @@ function resetGame(){
   location.reload();
 }
 
-/* INITIALISATION DU DOM (UNIFIÉE) */
+/* INITIALISATION DOM UNIQUE */
 document.addEventListener('DOMContentLoaded', ()=>{
   showScreen('screen-home');
 
