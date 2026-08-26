@@ -4,6 +4,7 @@
   --primary: #5A54F3;
   --mint: #4FD1AE;
   --danger: #FF5470;
+  --warning: #F5A623;
   --text: #FFFFFF;
   --muted: #8E8EA8;
 }
@@ -118,7 +119,13 @@ input[type="text"], input[type="number"] {
 .emoji-anim { font-size: 50px; margin-bottom: 10px; }
 .big-timer { font-size: 48px; font-weight: bold; font-family: monospace; margin: 15px 0; }
 
-.ooz-banner { background: var(--danger); color: #fff; padding: 8px; text-align: center; font-size: 12px; font-weight: bold; z-index: 600; }
+/* BANNIÈRE DE STATUT DE ZONE */
+.ooz-banner {
+  padding: 10px; text-align: center; font-size: 12px; font-weight: bold; z-index: 600;
+  transition: background 0.3s ease;
+}
+.ooz-banner.danger { background: var(--danger); color: #fff; }
+.ooz-banner.ok { background: #232738; color: var(--mint); border-bottom: 1px solid #34364D; }
 
 .toast {
   position: fixed; top: 15px; left: 50%; transform: translateX(-50%);
