@@ -1,8 +1,8 @@
 // ==========================================
-// CACHE-CACHE GPS — VERSION 1.80
+// CACHE-CACHE GPS — VERSION 1.92
 // ==========================================
 
-// --- 1. CONFIGURATION & INSTANCIATION FIREBASE ---
+// --- 1. CONFIGURATION FIREBASE ---
 const firebaseConfig = {
   apiKey: "AIzaSyBcxudeQK91giQA5kzSa6wnFZzJIgODjq8",
   authDomain: "cache-cache-draveil.firebaseapp.com",
@@ -18,7 +18,7 @@ if (!firebase.apps.length) {
 }
 const db = firebase.database();
 
-// --- 2. VARIABLES D'ÉTAT GLOBALES ---
+// --- 2. VARIABLES GLOBALES ---
 let roomCode = null;
 let myRole = null; // 'mouse' ou 'cat'
 let myName = "Joueur";
@@ -34,6 +34,8 @@ const RADIUS_MIN = 50;
 let circleCenter = null;
 let circleRadius = RADIUS_MAX;
 
+const CIRCLE_COLOR = "#1e3a8a"; // BLEU MARINE
+
 let gameStartTime = null;
 let hideDurationMinutes = 5;
 let isHidingPhase = true;
@@ -42,7 +44,7 @@ let gameLoopTimer = null;
 let activeChallenges = {};
 let currentChallengeForPhoto = null;
 
-// --- 3. UTILITAIRES GÉOGRAPHIQUES ---
+// --- 3. CALCUL DE DISTANCE (METRES) ---
 function getDistanceInMeters(lat1, lon1, lat2, lon2) {
   const R = 6371000;
   const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -53,7 +55,7 @@ function getDistanceInMeters(lat1, lon1, lat2, lon2) {
   return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
 }
 
-// --- 4. INITIALISATION DE L'APPLICATION ---
+// --- 4. INITIALISATION DOM ---
 document.addEventListener('DOMContentLoaded', () => {
   initRoleButtons();
   initColorButtons();
@@ -202,7 +204,7 @@ function initGameEvents() {
   }
 }
 
-// --- 5. GESTION DU SALON D'ATTENTE & SALLE ---
+// --- 5. SALLE D'ATTENTE ---
 function enterWaitingRoom() {
   hideScreen('lobby-screen');
   hideScreen('podium-screen');
@@ -258,7 +260,7 @@ function enterWaitingRoom() {
   });
 }
 
-// --- 6. GESTION DU MOTEUR DU JEU & GPS ---
+// --- 6. GESTION DE LA CARTE ET DE LA LOCALISATION ---
 function startGameSession() {
   hideScreen('waiting-room-screen');
   hideScreen('review-screen');
@@ -289,34 +291,35 @@ function startGPS() {
   navigator.geolocation.watchPosition((pos) => {
     currentPos = [pos.coords.latitude, pos.coords.longitude];
 
-    // Transmettre la position exacte du joueur
     if (roomCode) {
       db.ref(`rooms/${roomCode}/positions/${myRole}`).set({ lat: currentPos[0], lng: currentPos[1] });
     }
 
     updateMyMarker();
 
-    // DYNAMIQUE DU CERCLE (SOURIS SEULEMENT)
+    // DYNAMIQUE DE LA ZONE (SOURIS SEULEMENT)
     if (myRole === 'mouse') {
       if (!circleCenter) {
-        // 🎲 GENERATION ALEATOIRE INITIALE DU CENTRE
-        // Le centre est généré aléatoirement à une distance comprise entre 50m et 150m de la Souris
-        const randomAngle = Math.random() * 2 * Math.PI;
-        const randomDistance = 50 + (Math.random() * 100);
-
-        const offsetLat = (randomDistance / 111320) * Math.cos(randomAngle);
-        const offsetLng = (randomDistance / (111320 * Math.cos(currentPos[0] * Math.PI / 180))) * Math.sin(randomAngle);
-
-        circleCenter = [currentPos[0] + offsetLat, currentPos[1] + offsetLng];
+        // Décalage aléatoire léger autour de la souris (~100m à 150m) pour ne pas qu'elle soit pile au centre
+        const latOffset = (Math.random() - 0.5) * 0.002;
+        const lngOffset = (Math.random() - 0.5) * 0.002;
+        
+        circleCenter = [currentPos[0] + latOffset, currentPos[1] + lngOffset];
+        drawCircleOnMap(circleCenter[0], circleCenter[1], circleRadius);
         syncCircleDb();
       } else {
-        // GLISSEMENT DU CERCLE SI TOUCHÉ AU BORD
+        // Glissement du cercle lorsque la souris atteint le bord du cercle
         const dist = getDistanceInMeters(currentPos[0], currentPos[1], circleCenter[0], circleCenter[1]);
         if (dist > circleRadius) {
-          const angle = Math.atan2(currentPos[1] - circleCenter[1], currentPos[0] - circleCenter[0]);
-          const newLat = currentPos[0] - (circleRadius / 111320) * Math.cos(angle);
-          const newLng = currentPos[1] - (circleRadius / (111320 * Math.cos(currentPos[0] * Math.PI / 180))) * Math.sin(angle);
-          circleCenter = [newLat, newLng];
+          const latDiff = currentPos[0] - circleCenter[0];
+          const lngDiff = currentPos[1] - circleCenter[1];
+          const moveRatio = (dist - circleRadius) / dist;
+
+          circleCenter = [
+            circleCenter[0] + (latDiff * moveRatio),
+            circleCenter[1] + (lngDiff * moveRatio)
+          ];
+          drawCircleOnMap(circleCenter[0], circleCenter[1], circleRadius);
           syncCircleDb();
         }
       }
@@ -326,15 +329,6 @@ function startGPS() {
 
 function updateMyMarker() {
   if (!currentPos || !map) return;
-
-  // Masquer la position de la Souris pour le Chat durant le jeu
-  if (myRole === 'cat' && isHidingPhase) {
-    if (myMarker) {
-      map.removeLayer(myMarker);
-      myMarker = null;
-    }
-    return;
-  }
 
   const customIcon = L.divIcon({
     className: 'custom-dot-container',
@@ -350,24 +344,16 @@ function updateMyMarker() {
   }
 }
 
+// AFFICHAGE DU CERCLE BLEU MARINE UNIQUE POUR TOUS
 function drawCircleOnMap(lat, lng, radius) {
-  if (!map) return;
-
-  // Masquer le cercle sur la carte de la Souris et pendant la phase de cachette du Chat
-  if (myRole === 'mouse' || (myRole === 'cat' && isHidingPhase)) {
-    if (zoneCircleLayer) {
-      map.removeLayer(zoneCircleLayer);
-      zoneCircleLayer = null;
-    }
-    return;
-  }
+  if (!map || !lat || !lng) return;
 
   if (!zoneCircleLayer) {
     zoneCircleLayer = L.circle([lat, lng], {
-      color: myColor,
-      fillColor: myColor,
-      fillOpacity: 0.15,
-      weight: 2,
+      color: CIRCLE_COLOR,
+      fillColor: CIRCLE_COLOR,
+      fillOpacity: 0.2,
+      weight: 3,
       radius: radius
     }).addTo(map);
   } else {
@@ -386,12 +372,14 @@ function syncCircleDb() {
   }
 }
 
+// SYNCHRONISATION EN TEMPS RÉEL DE FIREBASE
 function listenFirebaseGameData() {
   db.ref(`rooms/${roomCode}/circle`).on('value', (snap) => {
     const c = snap.val();
-    if (c) {
+    if (c && c.lat && c.lng) {
       circleCenter = [c.lat, c.lng];
       circleRadius = c.radius || RADIUS_MAX;
+      // Met à jour la carte chez le Chat ET chez la Souris
       drawCircleOnMap(circleCenter[0], circleCenter[1], circleRadius);
     }
   });
@@ -414,7 +402,7 @@ function listenFirebaseGameData() {
   });
 }
 
-// --- 7. TIMERS & RÉTRÉCISSEMENT CHRONOLOGIQUE ---
+// --- 7. BOUCLE TEMPS RÉEL (1 SECONDE) ---
 function mainGameLoop() {
   if (!gameStartTime) return;
   const now = Date.now();
@@ -426,35 +414,28 @@ function mainGameLoop() {
   const timerDisplay = document.getElementById('timer-display');
   const statusTxt = document.getElementById('status-text');
 
-  // PHASE DE CACHETTE
   if (remainingHideMs > 0) {
     isHidingPhase = true;
-    circleRadius = RADIUS_MAX;
-
     const sec = Math.floor(remainingHideMs / 1000);
     const m = String(Math.floor(sec / 60)).padStart(2, '0');
     const s = String(sec % 60).padStart(2, '0');
 
     if (timerDisplay) timerDisplay.innerText = `${m}:${s}`;
-
-    if (myRole === 'mouse') {
-      if (statusTxt) statusTxt.innerText = `Cachez-vous ! Le Chat arrive dans ${m}:${s}`;
-    } else {
-      if (statusTxt) statusTxt.innerText = `Patientez, la Souris se cache... (${m}:${s})`;
-      if (myMarker) updateMyMarker();
-      if (zoneCircleLayer) drawCircleOnMap(0, 0, 0);
+    if (statusTxt) {
+      statusTxt.innerText = (myRole === 'mouse') 
+        ? `Cachez-vous ! Le Chat arrive dans ${m}:${s}` 
+        : `Patientez, la Souris se cache... (${m}:${s})`;
     }
-  } 
-  // PHASE DE TRAQUE
-  else {
+  } else {
     const elapsedMs = now - hideEndTime;
     const elapsedMinutes = Math.floor(elapsedMs / (60 * 1000));
 
     if (isHidingPhase) {
       isHidingPhase = false;
-      circleRadius = 300;
-      syncCircleDb();
-      updateMyMarker();
+      if (myRole === 'mouse') {
+        circleRadius = 300;
+        syncCircleDb();
+      }
     }
 
     const sec = Math.floor(elapsedMs / 1000);
@@ -463,45 +444,27 @@ function mainGameLoop() {
 
     if (timerDisplay) timerDisplay.innerText = `${m}:${s}`;
 
-    // ÉCRAN DU CHAT
-    if (myRole === 'cat') {
-      if (circleCenter) {
-        drawCircleOnMap(circleCenter[0], circleCenter[1], circleRadius);
+    const shrinkSteps = Math.floor(elapsedMinutes / 5);
+    const nextShrinkMs = ((shrinkSteps + 1) * 5 * 60 * 1000) - elapsedMs;
+    const nextSec = Math.max(0, Math.floor(nextShrinkMs / 1000));
+    const mNext = String(Math.floor(nextSec / 60)).padStart(2, '0');
+    const sNext = String(nextSec % 60).padStart(2, '0');
+
+    if (myRole === 'mouse') {
+      const targetRadius = Math.max(RADIUS_MIN, 300 - (shrinkSteps * 50));
+      if (circleRadius > targetRadius) {
+        circleRadius = targetRadius;
+        syncCircleDb();
       }
+    }
 
-      const shrinkSteps = Math.floor(elapsedMinutes / 5);
-      const nextShrinkMs = ((shrinkSteps + 1) * 5 * 60 * 1000) - elapsedMs;
-      const nextSec = Math.max(0, Math.floor(nextShrinkMs / 1000));
-      const mNext = String(Math.floor(nextSec / 60)).padStart(2, '0');
-      const sNext = String(nextSec % 60).padStart(2, '0');
-
-      if (statusTxt) {
-        statusTxt.innerText = `Traque en cours ! Rétrécissement (-50m) dans ${mNext}:${sNext}`;
-      }
-    } 
-    // ÉCRAN DE LA SOURIS
-    else if (myRole === 'mouse') {
-      if (currentPos && circleCenter) {
-        const shrinkSteps = Math.floor(elapsedMinutes / 5);
-        const targetRadius = Math.max(RADIUS_MIN, 300 - (shrinkSteps * 50));
-
-        if (circleRadius > targetRadius) {
-          circleRadius = targetRadius;
-          syncCircleDb();
-        }
-
-        const nextShrinkMs = ((shrinkSteps + 1) * 5 * 60 * 1000) - elapsedMs;
-        const nextSec = Math.max(0, Math.floor(nextShrinkMs / 1000));
-        const mNext = String(Math.floor(nextSec / 60)).padStart(2, '0');
-        const sNext = String(nextSec % 60).padStart(2, '0');
-
-        if (statusTxt) statusTxt.innerText = `Restez dissimulé. Rétrécissement (-50m) dans ${mNext}:${sNext}`;
-      }
+    if (statusTxt) {
+      statusTxt.innerText = `Traque en cours ! Rétrécissement (-50m) dans ${mNext}:${sNext}`;
     }
   }
 }
 
-// --- 8. SYSTÈME DE DÉFIS & PHOTOS ---
+// --- 8. DÉFIS ---
 function renderChallengesList() {
   const container = document.querySelector('.challenges-container');
   if (!container) return;
@@ -554,7 +517,7 @@ window.openCamera = function(challengeId) {
   if (input) input.click();
 };
 
-// --- 9. FIN DE PARTIE, VALIDATIONS & PODIUM ---
+// --- 9. FIN DE PARTIE & PODIUM ---
 function showReviewScreen() {
   hideScreen('app-container');
   showScreen('review-screen');
@@ -651,7 +614,7 @@ function resetGame() {
   showScreen('lobby-screen');
 }
 
-// --- 10. HELPER INTERFACE ---
+// --- 10. AFFICHAGE ÉCRANS ---
 function showScreen(id) {
   const el = document.getElementById(id);
   if (el) el.style.display = (id === 'app-container' || id === 'waiting-room-screen' || id === 'review-screen' || id === 'podium-screen' || id === 'lobby-screen') ? 'flex' : 'block';
