@@ -2,10 +2,9 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Cache-Cache Draveil</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Cache-Cache Draveil - Pro Edition</title>
   
-  <!-- CSS Leaflet pour la carte -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   
   <style>
@@ -13,142 +12,198 @@
       box-sizing: border-box;
       margin: 0;
       padding: 0;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      user-select: none;
     }
 
     body {
-      background-color: #0f172a;
-      color: #f8fafc;
+      background-color: #000;
+      color: #fff;
+      height: 100vh;
       display: flex;
       flex-direction: column;
-      height: 100vh;
       overflow: hidden;
     }
 
-    /* Header & Statut */
-    header {
-      padding: 15px;
-      background-color: #1e293b;
-      text-align: center;
-      box-shadow: 0 2px 10px rgba(0,0,0,0.3);
-      z-index: 1000;
-    }
-
-    h1 {
-      font-size: 1.2rem;
-      color: #38bdf8;
-      margin-bottom: 5px;
-    }
-
-    .status-badge {
-      display: inline-block;
-      padding: 4px 12px;
-      border-radius: 20px;
-      font-size: 0.85rem;
-      font-weight: bold;
-      background-color: #334155;
-      color: #94a3b8;
-    }
-
-    .status-badge.souris { background-color: #0284c7; color: #fff; }
-    .status-badge.chat { background-color: #dc2626; color: #fff; }
-
-    /* Carte */
+    /* Carte plein écran en arrière-plan */
     #map {
-      flex: 1;
+      position: absolute;
+      top: 0;
+      bottom: 0;
       width: 100%;
-      background-color: #1e293b;
+      z-index: 1;
     }
 
-    /* Panneau de contrôle */
-    .controls {
-      padding: 15px;
-      background-color: #1e293b;
+    /* Dark Mode pour les tuiles Leaflet */
+    .leaflet-tile-pane {
+      filter: brightness(0.6) invert(1) contrast(3) hue-rotate(200deg) saturate(0.3);
+    }
+
+    /* Superposition des éléments UI (Style iOS Glassmorphism) */
+    .ui-layer {
+      position: relative;
+      z-index: 1000;
+      pointer-events: none;
+      height: 100%;
       display: flex;
       flex-direction: column;
-      gap: 10px;
-      box-shadow: 0 -2px 10px rgba(0,0,0,0.3);
-      z-index: 1000;
+      justify-content: space-between;
+      padding: 20px;
     }
 
-    .timer-card {
-      background-color: #0f172a;
-      padding: 12px;
-      border-radius: 8px;
-      text-align: center;
-      border: 1px solid #334155;
+    .interactive {
+      pointer-events: auto;
     }
 
-    .timer-title {
-      font-size: 0.75rem;
-      text-transform: uppercase;
-      color: #94a3b8;
-      letter-spacing: 1px;
-    }
-
-    .timer-display {
-      font-size: 2rem;
-      font-weight: bold;
-      color: #f43f5e;
-      font-mono: monospace;
-    }
-
-    .btn-group {
+    /* Header Flottant */
+    header {
+      background: rgba(18, 18, 18, 0.75);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 20px;
+      padding: 15px 20px;
       display: flex;
+      justify-content: space-between;
+      align-items: center;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    }
+
+    .app-title {
+      font-size: 0.9rem;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: #38bdf8;
+    }
+
+    .badge {
+      padding: 6px 14px;
+      border-radius: 30px;
+      font-size: 0.75rem;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+
+    .badge-none { background: rgba(255, 255, 255, 0.1); color: #8e8e93; }
+    .badge-souris { background: #0284c7; color: #fff; box-shadow: 0 0 15px rgba(2, 132, 199, 0.5); }
+    .badge-chat { background: #e11d48; color: #fff; box-shadow: 0 0 15px rgba(225, 29, 72, 0.5); }
+
+    /* Panneau Inférieur */
+    .bottom-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .card {
+      background: rgba(18, 18, 18, 0.85);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 24px;
+      padding: 20px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    }
+
+    .timer-container {
+      text-align: center;
+    }
+
+    .timer-label {
+      font-size: 0.7rem;
+      color: #98989d;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      margin-bottom: 4px;
+    }
+
+    .timer-val {
+      font-size: 3rem;
+      font-weight: 900;
+      font-mono: monospace;
+      letter-spacing: -1px;
+      background: linear-gradient(180deg, #fff, #999);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    /* Boutons de contrôle */
+    .controls-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
       gap: 10px;
     }
 
-    button {
-      flex: 1;
-      padding: 12px;
+    .btn {
       border: none;
-      border-radius: 8px;
-      font-weight: bold;
+      border-radius: 16px;
+      padding: 16px;
+      font-size: 0.9rem;
+      font-weight: 700;
+      color: white;
       cursor: pointer;
-      transition: background 0.2s;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 8px;
     }
 
-    .btn-primary { background-color: #0284c7; color: white; }
-    .btn-danger { background-color: #dc2626; color: white; }
-    .btn-secondary { background-color: #334155; color: white; }
+    .btn:active {
+      transform: scale(0.96);
+    }
 
-    button:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
+    .btn-souris { background: linear-gradient(135deg, #0284c7, #0369a1); }
+    .btn-chat { background: linear-gradient(135deg, #e11d48, #be123c); }
+    .btn-action { 
+      background: rgba(255, 255, 255, 0.1); 
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      grid-column: span 2;
+    }
+
+    .btn:disabled {
+      opacity: 0.3;
+      transform: none;
+    }
+
+    /* Style du cercle animé personnalisée */
+    .leaflet-interactive {
+      transition: all 1.5s cubic-bezier(0.25, 1, 0.5, 1);
     }
   </style>
 </head>
 <body>
 
-  <header>
-    <h1>Cache-Cache Draveil</h1>
-    <div id="role-status" class="status-badge">Rôle non défini</div>
-  </header>
-
   <div id="map"></div>
 
-  <div class="controls">
-    <div class="timer-card">
-      <div class="timer-title">Chrono de survie</div>
-      <div id="timer" class="timer-display">00:00</div>
-    </div>
+  <div class="ui-layer">
+    <header class="interactive">
+      <div class="app-title">Cache-Cache</div>
+      <div id="role-badge" class="badge badge-none">Attente</div>
+    </header>
 
-    <div class="btn-group">
-      <button id="btn-souris" class="btn-primary">Jouer Souris</button>
-      <button id="btn-chat" class="btn-danger">Jouer Chat</button>
+    <div class="bottom-panel interactive">
+      <div class="card timer-container">
+        <div class="timer-label">Chrono de Survie</div>
+        <div id="timer" class="timer-val">00:00</div>
+      </div>
+
+      <div class="controls-grid">
+        <button id="btn-souris" class="btn btn-souris">🐭 Souris</button>
+        <button id="btn-chat" class="btn btn-chat">🐱 Chat</button>
+        <button id="btn-zone" class="btn btn-action" disabled>⚡ Déplacer la Zone (Glissement)</button>
+      </div>
     </div>
-    
-    <button id="btn-hotel" class="btn-secondary" disabled>Je rentre dans un bâtiment</button>
   </div>
 
-  <!-- Scripts JS : Leaflet & Firebase -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
     import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
-    // Configuration Firebase
     const firebaseConfig = {
       apiKey: "AIzaSyBcxudeQK91giQA5kzSa6wnFZzJIgODjq8",
       authDomain: "cache-cache-draveil.firebaseapp.com",
@@ -160,104 +215,125 @@
       measurementId: "G-GGFG133013"
     };
 
-    // Initialisation
     const app = initializeApp(firebaseConfig);
     const db = getDatabase(app);
 
-    // Identifiant unique de session du joueur
     const playerId = 'player_' + Math.random().toString(36).substr(2, 9);
     let myRole = null;
     let timerInterval = null;
     let secondsElapsed = 0;
     let markers = {};
+    let zoneCircle = null;
 
-    // Initialisation de la Carte Leaflet (centrée par défaut sur Draveil)
-    const map = L.map('map').setView([48.6828, 2.4081], 14);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap'
+    // Position initiale (Draveil)
+    const baseLat = 48.6828;
+    const baseLng = 2.4081;
+
+    // Initialisation Carte
+    const map = L.map('map', { zoomControl: false }).setView([baseLat, baseLng], 15);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+
+    // Initialisation du Cercle de Zone (Glissant)
+    zoneCircle = L.circle([baseLat, baseLng], {
+      color: '#38bdf8',
+      fillColor: '#0284c7',
+      fillOpacity: 0.15,
+      weight: 2,
+      radius: 400
     }).addTo(map);
 
-    // Éléments UI
-    const roleStatusEl = document.getElementById('role-status');
-    const timerEl = document.getElementById('timer');
-    const btnSouris = document.getElementById('btn-souris');
-    const btnChat = document.getElementById('btn-chat');
-    const btnHotel = document.getElementById('btn-hotel');
+    // Synchronisation de la Zone avec Firebase
+    onValue(ref(db, 'zone'), (snapshot) => {
+      const data = snapshot.val();
+      if (data && zoneCircle) {
+        // Animation fluide de glissement grâce au CSS appliqué à .leaflet-interactive
+        zoneCircle.setLatLng([data.lat, data.lng]);
+        zoneCircle.setRadius(data.radius);
+      }
+    });
 
-    // Gestion de la géolocalisation en temps réel
-    if ('geolocation' in navigator) {
-      navigator.geolocation.watchPosition(
-        (position) => {
-          const { latitude, longitude } = position.coords;
-          if (myRole) {
-            updatePositionInFirebase(latitude, longitude);
-          }
-        },
-        (error) => console.error("Erreur géolocalisation:", error),
-        { enableHighAccuracy: true }
-      );
-    }
+    // Fonction pour générer un décalage aléatoire et faire glisser la zone
+    function moveZoneRandomly() {
+      // Décalage aléatoire d'environ 200 à 400 mètres sur le côté
+      const randomLat = baseLat + (Math.random() - 0.5) * 0.008;
+      const randomLng = baseLng + (Math.random() - 0.5) * 0.008;
+      const newRadius = Math.max(150, zoneCircle.getRadius() * 0.85); // Le cercle rétrécit progressivement
 
-    function updatePositionInFirebase(lat, lng) {
-      set(ref(db, 'players/' + playerId), {
-        role: myRole,
-        lat: lat,
-        lng: lng,
-        lastUpdate: Date.now()
+      set(ref(db, 'zone'), {
+        lat: randomLat,
+        lng: randomLng,
+        radius: newRadius,
+        updatedAt: Date.now()
       });
     }
 
-    // Choix du rôle
-    btnSouris.addEventListener('click', () => setRole('souris'));
-    btnChat.addEventListener('click', () => setRole('chat'));
+    // Événements UI
+    const roleBadge = document.getElementById('role-badge');
+    const timerEl = document.getElementById('timer');
+    const btnSouris = document.getElementById('btn-souris');
+    const btnChat = document.getElementById('btn-chat');
+    const btnZone = document.getElementById('btn-zone');
 
-    function setRole(role) {
+    btnSouris.addEventListener('click', () => joinGame('souris'));
+    btnChat.addEventListener('click', () => joinGame('chat'));
+    btnZone.addEventListener('click', moveZoneRandomly);
+
+    function joinGame(role) {
       myRole = role;
-      roleStatusEl.textContent = `Rôle : ${role.toUpperCase()}`;
-      roleStatusEl.className = `status-badge ${role}`;
+      roleBadge.textContent = role === 'souris' ? '🐭 Souris' : '🐱 Chat';
+      roleBadge.className = `badge badge-${role}`;
       
       btnSouris.disabled = true;
       btnChat.disabled = true;
-      btnHotel.disabled = false;
+      btnZone.disabled = false;
 
-      if (role === 'souris') {
-        startTimer();
+      if (role === 'souris') startTimer();
+      
+      // Activer la géolocalisation
+      if ('geolocation' in navigator) {
+        navigator.geolocation.watchPosition((pos) => {
+          set(ref(db, 'players/' + playerId), {
+            role: myRole,
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
+            updatedAt: Date.now()
+          });
+        }, null, { enableHighAccuracy: true });
       }
     }
 
-    // Gestion du chronomètre
     function startTimer() {
       clearInterval(timerInterval);
       timerInterval = setInterval(() => {
         secondsElapsed++;
-        const mins = String(Math.floor(secondsElapsed / 60)).padStart(2, '0');
-        const secs = String(secondsElapsed % 60).padStart(2, '0');
-        timerEl.textContent = `${mins}:${secs}`;
+        const m = String(Math.floor(secondsElapsed / 60)).padStart(2, '0');
+        const s = String(secondsElapsed % 60).padStart(2, '0');
+        timerEl.textContent = `${m}:${s}`;
       }, 1000);
     }
 
-    // Écoute des joueurs en temps réel sur la carte
+    // Mise à jour des joueurs sur la carte en temps réel
     onValue(ref(db, 'players'), (snapshot) => {
       const players = snapshot.val();
       if (!players) return;
 
       Object.keys(players).forEach((id) => {
         const p = players[id];
-        
-        // Création ou mise à jour des marqueurs sur la carte
+        const iconColor = p.role === 'souris' ? '#0284c7' : '#e11d48';
+
         if (!markers[id]) {
-          markers[id] = L.marker([p.lat, p.lng]).addTo(map);
+          markers[id] = L.circleMarker([p.lat, p.lng], {
+            radius: 8,
+            fillColor: iconColor,
+            color: '#fff',
+            weight: 2,
+            opacity: 1,
+            fillOpacity: 0.9
+          }).addTo(map);
         } else {
           markers[id].setLatLng([p.lat, p.lng]);
         }
-        
-        markers[id].bindPopup(`Joueur (${p.role})`);
       });
-    });
-
-    // Action "Je rentre dans un bâtiment"
-    btnHotel.addEventListener('click', () => {
-      alert("Statut mis à jour : Tu es à l'abri !");
     });
   </script>
 </body>
