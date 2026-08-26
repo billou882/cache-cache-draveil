@@ -32,7 +32,7 @@ const COLORS = ["#f5a623","#4fd1ae","#ff5470","#8fc6ff","#c792ea","#ffd166","#ff
 
 function uuid(){
   if (crypto.randomUUID) return crypto.randomUUID();
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
     const r = Math.random()*16|0, v = c==='x'?r:(r&0x3|0x8);
     return v.toString(16);
   });
@@ -63,16 +63,18 @@ let fileInputEl = null;
 function $(id){ return document.getElementById(id); }
 
 function showScreen(id){
-  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
-  $(id).classList.add('active');
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  const target = $(id);
+  if (target) target.classList.add('active');
 }
 
 function toast(msg, ms=2600){
   const t = $('toast');
+  if (!t) return;
   t.textContent = msg;
   t.style.display = 'block';
   clearTimeout(toast._h);
-  toast._h = setTimeout(()=>{ t.style.display='none'; }, ms);
+  toast._h = setTimeout(() => { t.style.display='none'; }, ms);
 }
 
 function fmtMMSS(ms){
@@ -107,30 +109,6 @@ async function requestWakeLock(){
     if ('wakeLock' in navigator) state.wakeLock = await navigator.wakeLock.request('screen');
   } catch(e){}
 }
-
-/* INITIALISATION DOM & BOUTONS */
-document.addEventListener('DOMContentLoaded', ()=>{
-  const swatchesEl = $('swatches');
-  COLORS.forEach((c,i)=>{
-    const s = document.createElement('div');
-    s.className = 'swatch' + (i===0?' active':'');
-    s.style.background = c;
-    s.style.color = c;
-    s.addEventListener('click', ()=>{
-      document.querySelectorAll('.swatch').forEach(e=>e.classList.remove('active'));
-      s.classList.add('active');
-      state.color = c;
-    });
-    swatchesEl.appendChild(s);
-  });
-
-  $('role-chat').addEventListener('click', ()=> selectRole('chat'));
-  $('role-mouse').addEventListener('click', ()=> selectRole('mouse'));
-
-  $('btn-create').addEventListener('click', createGame);
-  $('btn-join').addEventListener('click', joinGame);
-  $('btn-new-game').addEventListener('click', resetGame);
-});
 
 function selectRole(r){
   state.role = r;
@@ -283,6 +261,12 @@ async function enterGame(){
   $('gt-role-chip').className = `role-chip ${state.role==='chat'?'chat':'mouse'}`;
 
   initMap();
+
+  // Force Leaflet à recalculer sa taille après le changement d'écran
+  setTimeout(() => {
+    if (state.map) state.map.invalidateSize();
+  }, 300);
+
   startGeolocation();
   listenRoom();
   listenChallenges();
@@ -297,6 +281,7 @@ async function enterGame(){
 }
 
 function initMap(){
+  if (state.map) return;
   state.map = L.map('map', { zoomControl:false, attributionControl:false }).setView([48.699,2.417], 15);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom:19 }).addTo(state.map);
   $('btn-recenter').onclick = ()=>{
@@ -468,7 +453,7 @@ function setupTabs(){
       document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
       btn.classList.add('active');
       $(btn.dataset.tab).classList.add('active');
-      if (btn.dataset.tab === 'tab-map' && state.map) setTimeout(()=>state.map.invalidateSize(), 50);
+      if (btn.dataset.tab === 'tab-map' && state.map) setTimeout(()=>state.map.invalidateSize(), 100);
     };
   });
 }
@@ -674,12 +659,32 @@ function resetGame(){
   if (state.wakeLock) state.wakeLock.release();
   location.reload();
 }
-// FORCER L'AFFICHAGE DE L'ÉCRAN D'ACCUEIL AU CHARGEMENT
-window.addEventListener('DOMContentLoaded', () => {
-  // Masque tous les écrans et active uniquement l'accueil
-  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-  const homeScreen = document.getElementById('screen-home');
-  if (homeScreen) {
-    homeScreen.classList.add('active');
+
+/* INITIALISATION DU DOM (UNIFIÉE) */
+document.addEventListener('DOMContentLoaded', ()=>{
+  showScreen('screen-home');
+
+  const swatchesEl = $('swatches');
+  if (swatchesEl) {
+    swatchesEl.innerHTML = '';
+    COLORS.forEach((c,i)=>{
+      const s = document.createElement('div');
+      s.className = 'swatch' + (i===0?' active':'');
+      s.style.background = c;
+      s.style.color = c;
+      s.addEventListener('click', ()=>{
+        document.querySelectorAll('.swatch').forEach(e=>e.classList.remove('active'));
+        s.classList.add('active');
+        state.color = c;
+      });
+      swatchesEl.appendChild(s);
+    });
   }
+
+  $('role-chat').addEventListener('click', ()=> selectRole('chat'));
+  $('role-mouse').addEventListener('click', ()=> selectRole('mouse'));
+
+  $('btn-create').addEventListener('click', createGame);
+  $('btn-join').addEventListener('click', joinGame);
+  $('btn-new-game').addEventListener('click', resetGame);
 });
