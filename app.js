@@ -1,8 +1,8 @@
 // ==========================================
-// CACHE-CACHE GPS — VERSION 1.78
+// CACHE-CACHE GPS — VERSION 1.80
 // ==========================================
 
-// --- CONFIGURATION FIREBASE ---
+// --- 1. CONFIGURATION & INSTANCIATION FIREBASE ---
 const firebaseConfig = {
   apiKey: "AIzaSyBcxudeQK91giQA5kzSa6wnFZzJIgODjq8",
   authDomain: "cache-cache-draveil.firebaseapp.com",
@@ -18,9 +18,9 @@ if (!firebase.apps.length) {
 }
 const db = firebase.database();
 
-// --- ÉTAT DU JEU ---
+// --- 2. VARIABLES D'ÉTAT GLOBALES ---
 let roomCode = null;
-let myRole = null; // 'mouse' (Souris) ou 'cat' (Chat)
+let myRole = null; // 'mouse' ou 'cat'
 let myName = "Joueur";
 let myColor = "#38bdf8";
 
@@ -38,12 +38,11 @@ let gameStartTime = null;
 let hideDurationMinutes = 5;
 let isHidingPhase = true;
 
-let outOfZoneStartTime = null;
 let gameLoopTimer = null;
 let activeChallenges = {};
 let currentChallengeForPhoto = null;
 
-// --- CALCULS GÉOGRAPHIQUES ---
+// --- 3. UTILITAIRES GÉOGRAPHIQUES ---
 function getDistanceInMeters(lat1, lon1, lat2, lon2) {
   const R = 6371000;
   const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -54,7 +53,7 @@ function getDistanceInMeters(lat1, lon1, lat2, lon2) {
   return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
 }
 
-// --- INITIALISATION DES ÉVÉNEMENTS DOM ---
+// --- 4. INITIALISATION DE L'APPLICATION ---
 document.addEventListener('DOMContentLoaded', () => {
   initRoleButtons();
   initColorButtons();
@@ -70,14 +69,14 @@ function initRoleButtons() {
   if (btnMouse) {
     btnMouse.onclick = () => {
       myRole = 'mouse';
-      if (btnMouse) btnMouse.classList.add('selected');
+      btnMouse.classList.add('selected');
       if (btnCat) btnCat.classList.remove('selected');
     };
   }
   if (btnCat) {
     btnCat.onclick = () => {
       myRole = 'cat';
-      if (btnCat) btnCat.classList.add('selected');
+      btnCat.classList.add('selected');
       if (btnMouse) btnMouse.classList.remove('selected');
     };
   }
@@ -203,7 +202,7 @@ function initGameEvents() {
   }
 }
 
-// --- SALLE D'ATTENTE & SYNCHRO FIREBASE ---
+// --- 5. GESTION DU SALON D'ATTENTE & SALLE ---
 function enterWaitingRoom() {
   hideScreen('lobby-screen');
   hideScreen('podium-screen');
@@ -259,7 +258,7 @@ function enterWaitingRoom() {
   });
 }
 
-// --- INITIALISATION DU JEU ---
+// --- 6. GESTION DU MOTEUR DU JEU & GPS ---
 function startGameSession() {
   hideScreen('waiting-room-screen');
   hideScreen('review-screen');
@@ -290,19 +289,36 @@ function startGPS() {
   navigator.geolocation.watchPosition((pos) => {
     currentPos = [pos.coords.latitude, pos.coords.longitude];
 
-    // Envoi de la position à Firebase
+    // Transmettre la position exacte du joueur
     if (roomCode) {
       db.ref(`rooms/${roomCode}/positions/${myRole}`).set({ lat: currentPos[0], lng: currentPos[1] });
     }
 
-    // Mise à jour du marqueur visuel
     updateMyMarker();
 
-    // La Souris définit le centre de la zone de jeu au démarrage
+    // DYNAMIQUE DU CERCLE (SOURIS SEULEMENT)
     if (myRole === 'mouse') {
       if (!circleCenter) {
-        circleCenter = [currentPos[0], currentPos[1]];
+        // 🎲 GENERATION ALEATOIRE INITIALE DU CENTRE
+        // Le centre est généré aléatoirement à une distance comprise entre 50m et 150m de la Souris
+        const randomAngle = Math.random() * 2 * Math.PI;
+        const randomDistance = 50 + (Math.random() * 100);
+
+        const offsetLat = (randomDistance / 111320) * Math.cos(randomAngle);
+        const offsetLng = (randomDistance / (111320 * Math.cos(currentPos[0] * Math.PI / 180))) * Math.sin(randomAngle);
+
+        circleCenter = [currentPos[0] + offsetLat, currentPos[1] + offsetLng];
         syncCircleDb();
+      } else {
+        // GLISSEMENT DU CERCLE SI TOUCHÉ AU BORD
+        const dist = getDistanceInMeters(currentPos[0], currentPos[1], circleCenter[0], circleCenter[1]);
+        if (dist > circleRadius) {
+          const angle = Math.atan2(currentPos[1] - circleCenter[1], currentPos[0] - circleCenter[0]);
+          const newLat = currentPos[0] - (circleRadius / 111320) * Math.cos(angle);
+          const newLng = currentPos[1] - (circleRadius / (111320 * Math.cos(currentPos[0] * Math.PI / 180))) * Math.sin(angle);
+          circleCenter = [newLat, newLng];
+          syncCircleDb();
+        }
       }
     }
   }, null, { enableHighAccuracy: true });
@@ -311,7 +327,7 @@ function startGPS() {
 function updateMyMarker() {
   if (!currentPos || !map) return;
 
-  // LE CHAT NE VOIT PAS SON MARQUEUR PENDANT LES 5 PREMIÈRES MINUTES
+  // Masquer la position de la Souris pour le Chat durant le jeu
   if (myRole === 'cat' && isHidingPhase) {
     if (myMarker) {
       map.removeLayer(myMarker);
@@ -337,8 +353,7 @@ function updateMyMarker() {
 function drawCircleOnMap(lat, lng, radius) {
   if (!map) return;
 
-  // RÈGLE ABSOLUE : La Souris ne voit AUCUN cercle sur sa carte.
-  // RÈGLE ABSOLUE : Le Chat ne voit AUCUN cercle pendant la phase de cachette.
+  // Masquer le cercle sur la carte de la Souris et pendant la phase de cachette du Chat
   if (myRole === 'mouse' || (myRole === 'cat' && isHidingPhase)) {
     if (zoneCircleLayer) {
       map.removeLayer(zoneCircleLayer);
@@ -347,7 +362,6 @@ function drawCircleOnMap(lat, lng, radius) {
     return;
   }
 
-  // Affichage du cercle uniquement pour le Chat pendant la traque
   if (!zoneCircleLayer) {
     zoneCircleLayer = L.circle([lat, lng], {
       color: myColor,
@@ -400,7 +414,7 @@ function listenFirebaseGameData() {
   });
 }
 
-// --- BOUCLE TEMPS RÉEL (1 SECONDE) ---
+// --- 7. TIMERS & RÉTRÉCISSEMENT CHRONOLOGIQUE ---
 function mainGameLoop() {
   if (!gameStartTime) return;
   const now = Date.now();
@@ -412,7 +426,7 @@ function mainGameLoop() {
   const timerDisplay = document.getElementById('timer-display');
   const statusTxt = document.getElementById('status-text');
 
-  // 1. PHASE DE CACHETTE (5 MINUTES)
+  // PHASE DE CACHETTE
   if (remainingHideMs > 0) {
     isHidingPhase = true;
     circleRadius = RADIUS_MAX;
@@ -430,9 +444,8 @@ function mainGameLoop() {
       if (myMarker) updateMyMarker();
       if (zoneCircleLayer) drawCircleOnMap(0, 0, 0);
     }
-    setScreenWarningBlink(false);
   } 
-  // 2. PHASE DE TRAQUE
+  // PHASE DE TRAQUE
   else {
     const elapsedMs = now - hideEndTime;
     const elapsedMinutes = Math.floor(elapsedMs / (60 * 1000));
@@ -450,10 +463,8 @@ function mainGameLoop() {
 
     if (timerDisplay) timerDisplay.innerText = `${m}:${s}`;
 
-    // --- VUE DU CHAT ---
+    // ÉCRAN DU CHAT
     if (myRole === 'cat') {
-      setScreenWarningBlink(false);
-
       if (circleCenter) {
         drawCircleOnMap(circleCenter[0], circleCenter[1], circleRadius);
       }
@@ -468,68 +479,29 @@ function mainGameLoop() {
         statusTxt.innerText = `Traque en cours ! Rétrécissement (-50m) dans ${mNext}:${sNext}`;
       }
     } 
-    
-    // --- VUE DE LA SOURIS ---
+    // ÉCRAN DE LA SOURIS
     else if (myRole === 'mouse') {
       if (currentPos && circleCenter) {
-        const dist = getDistanceInMeters(currentPos[0], currentPos[1], circleCenter[0], circleCenter[1]);
-        const isOutside = (dist > circleRadius);
+        const shrinkSteps = Math.floor(elapsedMinutes / 5);
+        const targetRadius = Math.max(RADIUS_MIN, 300 - (shrinkSteps * 50));
 
-        if (isOutside) {
-          setScreenWarningBlink(true);
-
-          if (!outOfZoneStartTime) outOfZoneStartTime = now;
-          const outsideTimeMs = now - outOfZoneStartTime;
-          const outsideSecRemaining = Math.max(0, (5 * 60 * 1000) - outsideTimeMs);
-          const mOut = String(Math.floor(outsideSecRemaining / 60000)).padStart(2, '0');
-          const sOut = String(Math.floor((outsideSecRemaining % 60000) / 1000)).padStart(2, '0');
-
-          if (circleRadius >= RADIUS_MAX) {
-            if (statusTxt) statusTxt.innerText = `⚠️ VOUS ÊTES HORS-ZONE ! Réintégrez la zone immédiatement !`;
-          } else {
-            if (statusTxt) statusTxt.innerText = `⚠️ HORS-ZONE ! Agrandissement (+50m) dans ${mOut}:${sOut}`;
-            if (outsideTimeMs >= 5 * 60 * 1000) {
-              circleRadius = Math.min(RADIUS_MAX, circleRadius + 50);
-              outOfZoneStartTime = now;
-              syncCircleDb();
-            }
-          }
-        } else {
-          setScreenWarningBlink(false);
-          outOfZoneStartTime = null;
-
-          const shrinkSteps = Math.floor(elapsedMinutes / 5);
-          const targetRadius = Math.max(RADIUS_MIN, 300 - (shrinkSteps * 50));
-
-          if (circleRadius > targetRadius) {
-            circleRadius = targetRadius;
-            syncCircleDb();
-          }
-
-          const nextShrinkMs = ((shrinkSteps + 1) * 5 * 60 * 1000) - elapsedMs;
-          const nextSec = Math.max(0, Math.floor(nextShrinkMs / 1000));
-          const mNext = String(Math.floor(nextSec / 60)).padStart(2, '0');
-          const sNext = String(nextSec % 60).padStart(2, '0');
-
-          if (statusTxt) statusTxt.innerText = `Restez dissimulé. Rétrécissement (-50m) dans ${mNext}:${sNext}`;
+        if (circleRadius > targetRadius) {
+          circleRadius = targetRadius;
+          syncCircleDb();
         }
+
+        const nextShrinkMs = ((shrinkSteps + 1) * 5 * 60 * 1000) - elapsedMs;
+        const nextSec = Math.max(0, Math.floor(nextShrinkMs / 1000));
+        const mNext = String(Math.floor(nextSec / 60)).padStart(2, '0');
+        const sNext = String(nextSec % 60).padStart(2, '0');
+
+        if (statusTxt) statusTxt.innerText = `Restez dissimulé. Rétrécissement (-50m) dans ${mNext}:${sNext}`;
       }
     }
   }
 }
 
-// BORDURE CLIGNOTANTE ORANGE EN HORS-ZONE
-function setScreenWarningBlink(enable) {
-  const container = document.getElementById('app-container');
-  if (!container) return;
-  if (enable) {
-    container.classList.add('screen-warning-blink');
-  } else {
-    container.classList.remove('screen-warning-blink');
-  }
-}
-
-// --- DÉFIS ---
+// --- 8. SYSTÈME DE DÉFIS & PHOTOS ---
 function renderChallengesList() {
   const container = document.querySelector('.challenges-container');
   if (!container) return;
@@ -582,11 +554,10 @@ window.openCamera = function(challengeId) {
   if (input) input.click();
 };
 
-// --- FIN DE PARTIE & PODIUM ---
+// --- 9. FIN DE PARTIE, VALIDATIONS & PODIUM ---
 function showReviewScreen() {
   hideScreen('app-container');
   showScreen('review-screen');
-  setScreenWarningBlink(false);
 
   db.ref(`rooms/${roomCode}/submittedPhotos`).once('value', (snap) => {
     const photos = snap.val();
@@ -630,7 +601,6 @@ function showPodiumScreen() {
   hideScreen('review-screen');
   hideScreen('app-container');
   showScreen('podium-screen');
-  setScreenWarningBlink(false);
 
   db.ref(`rooms/${roomCode}/players`).once('value', (snap) => {
     const players = snap.val();
@@ -660,7 +630,6 @@ function resetGame() {
   circleCenter = null;
   circleRadius = RADIUS_MAX;
   activeChallenges = {};
-  outOfZoneStartTime = null;
   isHidingPhase = true;
 
   if (zoneCircleLayer && map) {
@@ -672,8 +641,6 @@ function resetGame() {
     myMarker = null;
   }
 
-  setScreenWarningBlink(false);
-
   if (roomCode) {
     db.ref(`rooms/${roomCode}`).remove();
   }
@@ -684,7 +651,7 @@ function resetGame() {
   showScreen('lobby-screen');
 }
 
-// UTILITAIRES D'AFFICHAGE
+// --- 10. HELPER INTERFACE ---
 function showScreen(id) {
   const el = document.getElementById(id);
   if (el) el.style.display = (id === 'app-container' || id === 'waiting-room-screen' || id === 'review-screen' || id === 'podium-screen' || id === 'lobby-screen') ? 'flex' : 'block';
