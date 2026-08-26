@@ -105,9 +105,11 @@ function haversine(lat1,lng1,lat2,lng2){
   return 2*R*Math.asin(Math.sqrt(a));
 }
 
-// Génère un centre de cercle aléatoire à une distance (0 à maxOffset) de la position de la Souris
-function generateRandomOffsetCenter(centerLat, centerLng, maxOffsetMeters) {
-  const dist = Math.random() * maxOffsetMeters;
+// Génère un centre de cercle décalé (entre 30% et 70% du rayon) pour que le joueur ne soit JAMAIS au milieu
+function generateRandomOffsetCenter(centerLat, centerLng, radius) {
+  const minOffset = radius * 0.3;
+  const maxOffset = radius * 0.7;
+  const dist = minOffset + Math.random() * (maxOffset - minOffset);
   const angle = Math.random() * 2 * Math.PI;
   const dLat = (dist * Math.cos(angle)) / 111111;
   const dLng = (dist * Math.sin(angle)) / (111111 * Math.cos(centerLat * Math.PI / 180));
@@ -344,10 +346,10 @@ function startGeolocation(){
       update(ref(db, `rooms/${state.roomCode}/players/${uid}`), { lat, lng, updatedAt: now });
     }
     
-    // Si on est la Souris, on gère la glisse du cercle
+    // Si on est la Souris, on gère le glissement du cercle aux bords
     if (state.role === 'mouse') handleMouseCircleSlide(lat, lng);
 
-    // Si on est le Chat, on gère l'affichage du chrono et de la zone
+    // Si on est le Chat, on gère les timers et rétrécissement/agrandissement
     if (state.role === 'chat') handleZoneLogic(lat, lng);
   }, err=>{
     toast("Erreur GPS : " + err.message);
@@ -420,8 +422,8 @@ async function tryStartHunt(){
   await runTransaction(ref(db, `rooms/${state.roomCode}/circle`), cur=>{
     if (cur) return cur;
 
-    // Décalage aléatoire au démarrage (jusqu'à 70% du rayon)
-    const initCenter = generateRandomOffsetCenter(mouse.lat, mouse.lng, CIRCLE_START * 0.7);
+    // Décalage aléatoire garanti au début (jamais au centre)
+    const initCenter = generateRandomOffsetCenter(mouse.lat, mouse.lng, CIRCLE_START);
 
     return { 
       lat: initCenter.lat, 
@@ -449,14 +451,13 @@ function renderCircle(){
   }).addTo(state.map);
 }
 
-// SI LA SOURIS ATOUCHE LE BORD DE SA ZONE, LE CERCLE GLISSE
+// SI LA SOURIS PASSE LA BORDURE DE LA ZONE, LE CERCLE GLISSE AVEC ELLE
 function handleMouseCircleSlide(mLat, mLng) {
   const c = roomData.circle;
   if (!c || !c.lat || roomData.phase !== 'hunting') return;
 
   const dist = haversine(mLat, mLng, c.lat, c.lng);
   
-  // Si la Souris sort du rayon du cercle, le centre est ajusté (effet glissement)
   if (dist > c.radius) {
     const angle = Math.atan2(mLng - c.lng, mLat - c.lat);
     const dLat = (dist - c.radius) * Math.cos(angle) / 111111;
@@ -469,7 +470,7 @@ function handleMouseCircleSlide(mLat, mLng) {
   }
 }
 
-// GESTION DU RÉTRÉCISSEMENT ET AGRANDISSEMENT POUR LE CHAT
+// GESTION DU RÉTRÉCISSEMENT ET AGRANDISSEMENT DE ZONE POUR LE CHAT
 async function handleZoneLogic(lat, lng){
   const c = roomData.circle;
   if (!c || !c.lat || roomData.phase !== 'hunting') return;
@@ -489,7 +490,6 @@ async function handleZoneLogic(lat, lng){
     } else {
       const remain = TIME_5_MIN_MS - (now - c.outOfZoneSince);
       if (remain <= 0) {
-        // Hors-zone > 5 min : Le cercle s'agrandit
         const newRadius = Math.min(CIRCLE_MAX, c.radius + CIRCLE_STEP);
         update(ref(db, `rooms/${state.roomCode}/circle`), { radius: newRadius, outOfZoneSince: now });
         toast(`⚠️ Hors-zone depuis 5 min ! La zone s'agrandit à ${newRadius}m`);
@@ -506,18 +506,18 @@ async function handleZoneLogic(lat, lng){
     } else {
       const remain = TIME_5_MIN_MS - (now - c.inZoneSince);
       if (remain <= 0) {
-        // Dans la zone > 5 min : Le cercle se rétrécit ET se régénère aléatoirement autour de la Souris
+        // VÉRIFICATION ET EXÉCUTION DU RÉTRÉCISSEMENT
         const newRadius = Math.max(CIRCLE_MIN, c.radius - CIRCLE_STEP);
         
-        // Récupérer la dernière position connue de la Souris pour recalculer le centre
+        // Récupération de la position actuelle de la Souris
         const playersSnap = await get(ref(db, `rooms/${state.roomCode}/players`));
         const players = playersSnap.val() || {};
         const mouse = Object.values(players).find(p => p.role === 'mouse');
 
         let newCenter = { lat: c.lat, lng: c.lng };
         if (mouse && mouse.lat != null) {
-          // Nouveau centre aléatoire (au maximum à 60% du nouveau rayon de la souris)
-          newCenter = generateRandomOffsetCenter(mouse.lat, mouse.lng, newRadius * 0.6);
+          // Nouveau centre aléatoire garanti non centré autour de la position actuelle de la Souris
+          newCenter = generateRandomOffsetCenter(mouse.lat, mouse.lng, newRadius);
         }
 
         update(ref(db, `rooms/${state.roomCode}/circle`), { 
@@ -526,7 +526,7 @@ async function handleZoneLogic(lat, lng){
           radius: newRadius, 
           inZoneSince: now 
         });
-        toast(`🎯 5 min dans la zone ! Le cercle rétrécit à ${newRadius}m et s'est déplacé.`);
+        toast(`🎯 5 min dans la zone ! Le cercle s'est réduit à ${newRadius}m et s'est régénéré décalé.`);
       } else {
         $('ooz-text').textContent = `🎯 DANS LA ZONE. Rétrécissement (-50m) dans ${fmtMMSS(remain)}`;
       }
