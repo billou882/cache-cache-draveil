@@ -1,158 +1,155 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Cache-Cache Draveil — Chat & Souris</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-<link rel="stylesheet" href="style.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Cache-Cache GPS</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<div class="toast" id="toast"></div>
-<div id="app">
+  <div id="toast" class="toast"></div>
 
-  <!-- HOME -->
-  <div class="screen active pad" id="screen-home">
-    <div class="brand"><div class="mark">🐾</div><div class="name">CACHE-CACHE · DRAVEIL</div></div>
-    <p class="eyebrow">Jeu géolocalisé en temps réel</p>
-    <h1 class="title-xl">Le Chat traque.<br>La Souris se planque.</h1>
-    <p class="subtitle">Choisis ton camp, active ta position, et file te mettre en jeu.</p>
+  <!-- ÉCRAN D'ACCUEIL -->
+  <div id="screen-home" class="screen active">
+    <div class="card">
+      <h1 class="title">Cache-Cache GPS</h1>
+      <div id="home-err" class="error-msg"></div>
 
-    <label class="field-label">Ton pseudo</label>
-    <input type="text" id="in-pseudo" maxlength="16" placeholder="Ex. Milo">
-
-    <label class="field-label">Couleur du marqueur</label>
-    <div class="swatches" id="swatches"></div>
-
-    <label class="field-label">Ton rôle</label>
-    <div class="role-pick">
-      <div class="role-card" id="role-chat" data-role="chat">
-        <span class="emoji">🐱</span>
-        <div class="lbl">Chat</div>
-        <div class="desc">Traque la Souris avec la zone de recherche</div>
+      <div class="field">
+        <label>Ton Pseudo</label>
+        <input type="text" id="in-pseudo" placeholder="Ex: Alex" maxlength="15">
       </div>
-      <div class="role-card" id="role-mouse" data-role="mouse">
-        <span class="emoji">🐭</span>
-        <div class="lbl">Souris</div>
-        <div class="desc">Se cache et relève des défis</div>
+
+      <div class="field">
+        <label>Couleur du marqueur</label>
+        <div id="swatches" class="swatches"></div>
+      </div>
+
+      <div class="field">
+        <label>Ton Rôle</label>
+        <div class="role-selector">
+          <button id="role-chat" class="role-btn">🐱 Chat</button>
+          <button id="role-mouse" class="role-btn">🐭 Souris</button>
+        </div>
+      </div>
+
+      <div id="create-block" style="display:none;">
+        <div class="field">
+          <label>Temps de cachette (minutes)</label>
+          <input type="number" id="in-hide-min" value="5" min="1" max="15">
+        </div>
+        <button id="btn-create" class="btn btn-primary">Créer un salon</button>
+        <div class="divider">OU</div>
+        <div class="field">
+          <input type="text" id="in-join-code" placeholder="CODE DU SALON" style="text-transform:uppercase;">
+        </div>
+        <button id="btn-join" class="btn btn-secondary">Rejoindre le salon</button>
       </div>
     </div>
-
-    <div id="create-block" style="display:none;">
-      <label class="field-label">Durée de la phase de cachette (min)</label>
-      <input type="number" id="in-hide-min" min="1" max="60" value="5">
-      <div style="height:16px"></div>
-      <button class="btn btn-primary" id="btn-create">Créer une partie</button>
-    </div>
-
-    <div class="divider-or">ou</div>
-
-    <label class="field-label">Rejoindre avec un code</label>
-    <div class="row">
-      <input type="text" id="in-join-code" maxlength="6" placeholder="CODE" style="text-transform:uppercase">
-    </div>
-    <div style="height:12px"></div>
-    <button class="btn btn-mint" id="btn-join">Rejoindre la partie</button>
-    <div class="err" id="home-err"></div>
   </div>
 
-  <!-- WAITING -->
-  <div class="screen pad" id="screen-wait">
-    <div class="brand"><div class="mark">🐾</div><div class="name">CACHE-CACHE · DRAVEIL</div></div>
-    <p class="eyebrow">Salon d'attente</p>
-    <h1 class="title-xl">Prêts à jouer ?</h1>
-    <p class="subtitle">Partage ce code avec l'autre joueur.</p>
-    <div class="room-code-box">
-      <div class="code" id="wait-code">------</div>
-      <div class="hint">Appuie pour copier</div>
+  <!-- SALON D'ATTENTE -->
+  <div id="screen-wait" class="screen">
+    <div class="card">
+      <h2>SALON DE JEU</h2>
+      <div class="code-box" id="wait-code">-----</div>
+      <p class="muted">Partage ce code à ton partenaire</p>
+      
+      <div id="wait-players" class="players-list"></div>
+
+      <button id="btn-ready" class="btn btn-primary" style="margin-top:20px;">Je suis prêt !</button>
     </div>
-    <div id="wait-players"></div>
-    <div style="height:8px"></div>
-    <button class="btn btn-primary" id="btn-ready">Je suis prêt</button>
-    <p class="muted" style="font-size:12px; margin-top:14px; text-align:center;">La partie démarre automatiquement dès que les deux joueurs sont prêts.</p>
-    <div class="err" id="wait-err"></div>
   </div>
 
-  <!-- GAME -->
-  <div class="screen" id="screen-game">
-    <div id="game-topbar">
-      <div class="gt-left">
-        <span class="gt-code" id="gt-code">SALON ----</span>
-        <span class="gt-phase" id="gt-phase">Cachette</span>
+  <!-- ÉCRAN DE JEU -->
+  <div id="screen-game" class="screen">
+    <div class="top-bar">
+      <div>
+        <div id="gt-code" class="gt-title">SALON ----</div>
+        <div id="gt-phase" class="gt-sub">Phase de jeu</div>
       </div>
-      <div class="gt-timer" id="gt-timer">--:--</div>
-      <span class="role-chip" id="gt-role-chip">--</span>
+      <div class="top-right">
+        <span id="gt-role-chip" class="role-chip">--</span>
+        <div id="gt-timer" class="gt-timer">--:--</div>
+      </div>
     </div>
 
-    <div class="tab active" id="tab-map">
+    <div id="ooz-banner" class="ooz-banner" style="display:none;">
+      ⚠️ <span id="ooz-text">VOUS ÊTES HORS-ZONE !</span>
+    </div>
+
+    <!-- OVERLAY CACHETTE -->
+    <div id="hiding-overlay" class="overlay">
+      <div class="overlay-content">
+        <div class="emoji-anim">🙈</div>
+        <h2 style="color:var(--danger)">PHASE DE CACHETTE</h2>
+        <div id="hiding-count" class="big-timer">05:00</div>
+        <h3 id="hiding-label">Trouve ta cachette !</h3>
+        <p id="hiding-sub" class="muted">La carte reste masquée pendant le décompte.</p>
+      </div>
+    </div>
+
+    <!-- ONGLETS -->
+    <div id="tab-map" class="tab active">
       <div id="map"></div>
-      <div id="hiding-overlay">
-        <div class="paw">🙈</div>
-        <div class="eyebrow" id="hiding-label">Phase de cachette</div>
-        <div class="count" id="hiding-count">05:00</div>
-        <p class="muted" id="hiding-sub">Va te cacher. La carte du Chat reste masquée jusqu'à la fin du décompte.</p>
+      <button id="btn-recenter" class="fab">🎯</button>
+    </div>
+
+    <div id="tab-defis" class="tab">
+      <div class="tab-content">
+        <h3>Défis & Missions</h3>
+        <div id="chat-challenge-form" style="display:none;" class="card-sm">
+          <h4>Proposer un défi à la Souris</h4>
+          <input type="text" id="ch-text" placeholder="Ex: Prends une photo d'une fleur rouge">
+          <input type="number" id="ch-points" value="10" placeholder="Points (ex: 10)">
+          <button id="btn-send-challenge" class="btn btn-primary btn-sm" style="margin-top:8px;">Envoyer</button>
+        </div>
+        <div id="challenges-empty" class="muted">Aucun défi pour le moment.</div>
+        <div id="challenges-list"></div>
       </div>
-      <div id="ooz-banner">⚠️ <span id="ooz-text">VOUS ÊTES HORS-ZONE !</span></div>
-      <div class="recenter-btn" id="btn-recenter">🎯</div>
     </div>
 
-    <div class="tab" id="tab-challenges">
-      <div class="challenge-form card" id="chat-challenge-form" style="display:none;">
-        <label class="field-label" style="margin-top:0;">Nouveau défi (valable 10 min)</label>
-        <input type="text" id="ch-text" placeholder="Ex. Trouve un banc rouge">
-        <label class="field-label">Points accordés</label>
-        <input type="number" id="ch-points" value="10" min="1" max="100">
-        <div style="height:12px"></div>
-        <button class="btn btn-primary btn-sm" id="btn-send-challenge" style="width:100%;">Envoyer le défi</button>
+    <div id="tab-capture" class="tab">
+      <div class="tab-content center">
+        <h2 id="capture-title">Capture</h2>
+        <p id="capture-desc">Gestion de la fin de partie.</p>
+        <button id="btn-declare-capture" class="btn btn-danger" style="display:none;">🚨 J'ai attrapé la Souris !</button>
+        <button id="btn-confirm-capture" class="btn btn-danger" style="display:none;">⚠️ Confirmer que je suis capturé(e)</button>
       </div>
-      <div id="challenges-list"></div>
-      <p class="muted" id="challenges-empty" style="text-align:center; margin-top:30px;">Aucun défi pour l'instant.</p>
     </div>
 
-    <div class="tab" id="tab-capture">
-      <div class="capture-icon" id="capture-icon">🐾</div>
-      <h2 id="capture-title">Capture</h2>
-      <p class="muted" id="capture-desc">—</p>
-      <button class="btn btn-danger" id="btn-declare-capture" style="display:none;">J'ai trouvé la Souris !</button>
-      <button class="btn btn-mint" id="btn-confirm-capture" style="display:none;">Confirmer ma capture</button>
-    </div>
-
-    <div id="floating-toolbar">
-      <div class="ft-btn active" data-tab="tab-map"><span class="ic">🗺️</span>Carte</div>
-      <div class="ft-btn" data-tab="tab-challenges" style="position:relative;"><span class="ic">🎯</span>Défis</div>
-      <div class="ft-btn" data-tab="tab-capture"><span class="ic">🐾</span>Capture</div>
+    <!-- NAVIGATION BASSE -->
+    <div class="footer-nav">
+      <button class="ft-btn active" data-tab="tab-map">🗺️ Carte</button>
+      <button class="ft-btn" data-tab="tab-defis">🎯 Défis</button>
+      <button class="ft-btn" data-tab="tab-capture">🐾 Capture</button>
     </div>
   </div>
 
-  <!-- REVIEW -->
-  <div class="screen pad" id="screen-review">
-    <div class="brand"><div class="mark">🐾</div><div class="name">CACHE-CACHE · DRAVEIL</div></div>
-    <p class="eyebrow">Phase de révision</p>
-    <h1 class="title-xl" id="review-title">Validation des défis</h1>
-    <p class="subtitle" id="review-sub">Le Chat valide ou refuse les preuves envoyées par la Souris.</p>
-    <div id="review-gallery"></div>
-    <p class="muted" id="review-empty" style="text-align:center; margin-top:20px;">Aucune preuve envoyée.</p>
-    <button class="btn btn-primary" id="btn-finish-review" style="display:none; margin-top:10px;">Voir le bilan</button>
-  </div>
-
-  <!-- END / PODIUM -->
-  <div class="screen" id="screen-end">
-    <div class="podium-wrap">
-      <div class="brand"><div class="mark">🏁</div><div class="name">CACHE-CACHE · DRAVEIL</div></div>
-      <p class="eyebrow">Bilan de la partie</p>
-      <h1 class="title-xl" style="text-align:center;">Partie terminée</h1>
-      <p class="muted">Temps de survie officiel</p>
-      <div class="survival-time" id="end-survival">00:00</div>
-      <div style="width:100%; margin-top:18px;" id="end-scores"></div>
-      <button class="btn btn-primary" id="btn-new-game" style="margin-top:26px;">Nouvelle partie</button>
+  <!-- ÉCRAN DE VALIDATION -->
+  <div id="screen-review" class="screen">
+    <div class="card">
+      <h2 id="review-title">Validation des défis</h2>
+      <div id="review-empty" class="muted">Aucune photo soumise.</div>
+      <div id="review-gallery"></div>
+      <button id="btn-finish-review" class="btn btn-primary" style="display:none;margin-top:15px;">Terminer la partie</button>
     </div>
   </div>
 
-</div>
+  <!-- ÉCRAN FIN -->
+  <div id="screen-end" class="screen">
+    <div class="card center">
+      <h1 class="title">Partie Terminée !</h1>
+      <p class="muted">Temps de survie de la Souris :</p>
+      <div id="end-survival" class="big-timer" style="color:var(--mint)">--:--</div>
+      <h3 style="margin-top:20px;">Scores globaux</h3>
+      <div id="end-scores" class="players-list"></div>
+      <button id="btn-new-game" class="btn btn-primary" style="margin-top:20px;">Rejouer</button>
+    </div>
+  </div>
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script type="module" src="app.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script type="module" src="app.js"></script>
 </body>
 </html>
