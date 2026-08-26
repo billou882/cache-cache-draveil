@@ -1,7 +1,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
-  getDatabase, ref, set, get, update, onValue, push, child,
-  onDisconnect, serverTimestamp, runTransaction
+  getDatabase, ref, set, get, update, onValue, push, off,
+  onDisconnect, runTransaction
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 import {
   getStorage, ref as storageRef, uploadBytes, getDownloadURL
@@ -16,13 +16,11 @@ const firebaseConfig = {
   messagingSenderId: "809078029731",
   appId: "1:809078029731:web:83e384a38ce01254016e16"
 };
+
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 const storage = getStorage(app);
 
-/* ---------------------------------------------------------------- */
-/*  Constants                                                        */
-/* ---------------------------------------------------------------- */
 const CIRCLE_START = 300;
 const CIRCLE_MIN = 50;
 const CIRCLE_MAX = 400;
@@ -32,9 +30,6 @@ const OOZ_GROW_DELAY_MS = 5 * 60 * 1000;
 const CHALLENGE_TTL_MS = 10 * 60 * 1000;
 const COLORS = ["#f5a623","#4fd1ae","#ff5470","#8fc6ff","#c792ea","#ffd166","#ff8fab","#7bd389"];
 
-/* ---------------------------------------------------------------- */
-/*  Local identity                                                   */
-/* ---------------------------------------------------------------- */
 function uuid(){
   if (crypto.randomUUID) return crypto.randomUUID();
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{
@@ -54,26 +49,24 @@ let state = {
   watchId: null,
   map: null,
   myMarker: null,
-  otherMarker: null,
   circleLayer: null,
   lastSentPos: 0,
-  shrinkTier: 0,
-  huntStartAt: null,
-  hidingEndAt: null,
-  oozLocalWarn: false,
-  currentTab: 'tab-map',
-  unsub: [],
   lastPos: null,
+  gameStarted: false,
+  catInterval: null,
+  wakeLock: null
 };
 
-/* ---------------------------------------------------------------- */
-/*  Helpers                                                           */
-/* ---------------------------------------------------------------- */
+let roomData = {};
+let fileInputEl = null;
+
 function $(id){ return document.getElementById(id); }
+
 function showScreen(id){
   document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
   $(id).classList.add('active');
 }
+
 function toast(msg, ms=2600){
   const t = $('toast');
   t.textContent = msg;
@@ -81,6 +74,7 @@ function toast(msg, ms=2600){
   clearTimeout(toast._h);
   toast._h = setTimeout(()=>{ t.style.display='none'; }, ms);
 }
+
 function fmtMMSS(ms){
   if (ms < 0) ms = 0;
   const s = Math.floor(ms/1000);
@@ -88,6 +82,7 @@ function fmtMMSS(ms){
   const r = s%60;
   return String(m).padStart(2,'0')+':'+String(r).padStart(2,'0');
 }
+
 function haversine(lat1,lng1,lat2,lng2){
   const R = 6371000;
   const toRad = d => d*Math.PI/180;
@@ -95,49 +90,62 @@ function haversine(lat1,lng1,lat2,lng2){
   const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLng/2)**2;
   return 2*R*Math.asin(Math.sqrt(a));
 }
+
 function makeCode(){
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   let c = '';
   for (let i=0;i<5;i++) c += chars[Math.floor(Math.random()*chars.length)];
   return c;
 }
-function roomRef(path=''){ return ref(db, `rooms/${state.roomCode}${path?'/'+path:''}`); }
 
-/* ---------------------------------------------------------------- */
-/*  HOME SCREEN                                                       */
-/* ---------------------------------------------------------------- */
-const swatchesEl = $('swatches');
-COLORS.forEach((c,i)=>{
-  const s = document.createElement('div');
-  s.className = 'swatch' + (i===0?' active':'');
-  s.style.background = c;
-  s.style.color = c;
-  s.addEventListener('click', ()=>{
-    document.querySelectorAll('.swatch').forEach(e=>e.classList.remove('active'));
-    s.classList.add('active');
-    state.color = c;
+function escapeHtml(s){
+  const d = document.createElement('div'); d.textContent = s ?? ''; return d.innerHTML;
+}
+
+async function requestWakeLock(){
+  try {
+    if ('wakeLock' in navigator) state.wakeLock = await navigator.wakeLock.request('screen');
+  } catch(e){}
+}
+
+/* INITIALISATION DOM & BOUTONS */
+document.addEventListener('DOMContentLoaded', ()=>{
+  const swatchesEl = $('swatches');
+  COLORS.forEach((c,i)=>{
+    const s = document.createElement('div');
+    s.className = 'swatch' + (i===0?' active':'');
+    s.style.background = c;
+    s.style.color = c;
+    s.addEventListener('click', ()=>{
+      document.querySelectorAll('.swatch').forEach(e=>e.classList.remove('active'));
+      s.classList.add('active');
+      state.color = c;
+    });
+    swatchesEl.appendChild(s);
   });
-  swatchesEl.appendChild(s);
-});
-state.color = COLORS[0];
 
-let selectedRole = null;
-$('role-chat').addEventListener('click', ()=> selectRole('chat'));
-$('role-mouse').addEventListener('click', ()=> selectRole('mouse'));
+  $('role-chat').addEventListener('click', ()=> selectRole('chat'));
+  $('role-mouse').addEventListener('click', ()=> selectRole('mouse'));
+
+  $('btn-create').addEventListener('click', createGame);
+  $('btn-join').addEventListener('click', joinGame);
+  $('btn-new-game').addEventListener('click', resetGame);
+});
+
 function selectRole(r){
-  selectedRole = r;
+  state.role = r;
   $('role-chat').classList.toggle('sel-chat', r==='chat');
   $('role-mouse').classList.toggle('sel-mouse', r==='mouse');
   $('create-block').style.display = 'block';
 }
 
-$('btn-create').addEventListener('click', async ()=>{
+async function createGame(){
   const pseudo = $('in-pseudo').value.trim();
   const hideMin = Math.max(1, parseInt($('in-hide-min').value||'5',10));
   if (!pseudo){ $('home-err').textContent = 'Choisis un pseudo.'; return; }
-  if (!selectedRole){ $('home-err').textContent = 'Choisis un rôle (Chat ou Souris).'; return; }
+  if (!state.role){ $('home-err').textContent = 'Choisis un rôle (Chat ou Souris).'; return; }
   $('home-err').textContent = '';
-  state.pseudo = pseudo; state.role = selectedRole; state.isHost = true;
+  state.pseudo = pseudo; state.isHost = true;
 
   let code;
   for (let tries=0; tries<8; tries++){
@@ -152,33 +160,33 @@ $('btn-create').addEventListener('click', async ()=>{
     hideDurationMin: hideMin,
     phase: 'lobby',
     circle: null,
-    capture: { requestedByCat:false, confirmed:false },
+    capture: { requestedByCat:false, confirmed:false }
   });
   await writeSelfPlayer();
   await enterWaiting();
-});
+}
 
-$('btn-join').addEventListener('click', async ()=>{
+async function joinGame(){
   const pseudo = $('in-pseudo').value.trim();
   const code = $('in-join-code').value.trim().toUpperCase();
   if (!pseudo){ $('home-err').textContent = 'Choisis un pseudo.'; return; }
-  if (!selectedRole){ $('home-err').textContent = 'Choisis un rôle (Chat ou Souris).'; return; }
+  if (!state.role){ $('home-err').textContent = 'Choisis un rôle (Chat ou Souris).'; return; }
   if (!code){ $('home-err').textContent = 'Entre un code de salon.'; return; }
   $('home-err').textContent = '';
 
   const snap = await get(ref(db, `rooms/${code}`));
   if (!snap.exists()){ $('home-err').textContent = "Ce salon n'existe pas."; return; }
-  const roomData = snap.val();
-  const players = roomData.players || {};
+  const room = snap.val();
+  const players = room.players || {};
   const takenRoles = Object.values(players).filter(p=>p.uid!==uid).map(p=>p.role);
-  if (takenRoles.includes(selectedRole)){
-    $('home-err').textContent = `Le rôle ${selectedRole==='chat'?'Chat':'Souris'} est déjà pris dans ce salon.`;
+  if (takenRoles.includes(state.role)){
+    $('home-err').textContent = `Le rôle ${state.role==='chat'?'Chat':'Souris'} est déjà pris.`;
     return;
   }
-  state.pseudo = pseudo; state.role = selectedRole; state.roomCode = code; state.isHost = false;
+  state.pseudo = pseudo; state.roomCode = code; state.isHost = false;
   await writeSelfPlayer();
   await enterWaiting();
-});
+}
 
 async function writeSelfPlayer(){
   const pRef = ref(db, `rooms/${state.roomCode}/players/${uid}`);
@@ -187,14 +195,9 @@ async function writeSelfPlayer(){
     ready:false, connected:true, score:0, lat:null, lng:null, updatedAt:Date.now()
   });
   onDisconnect(ref(db, `rooms/${state.roomCode}/players/${uid}/connected`)).set(false);
-  localStorage.setItem('ccd_room', state.roomCode);
-  localStorage.setItem('ccd_role', state.role);
-  localStorage.setItem('ccd_pseudo', state.pseudo);
 }
 
-/* ---------------------------------------------------------------- */
-/*  WAITING SCREEN                                                    */
-/* ---------------------------------------------------------------- */
+/* WAITING ROOM */
 async function enterWaiting(){
   showScreen('screen-wait');
   $('wait-code').textContent = state.roomCode;
@@ -202,22 +205,24 @@ async function enterWaiting(){
     navigator.clipboard?.writeText(state.roomCode).then(()=>toast('Code copié !'));
   };
 
-  onValue(ref(db, `rooms/${state.roomCode}/players`), (snap)=>{
+  const pRef = ref(db, `rooms/${state.roomCode}/players`);
+  onValue(pRef, (snap)=>{
     const players = snap.val() || {};
     renderWaitPlayers(players);
     maybeStartGame(players);
   });
 
-  onValue(ref(db, `rooms/${state.roomCode}/phase`), (snap)=>{
+  const phaseRef = ref(db, `rooms/${state.roomCode}/phase`);
+  onValue(phaseRef, (snap)=>{
     const phase = snap.val();
     if (phase === 'hiding' || phase === 'hunting') enterGame();
   });
 
-  $('btn-ready').addEventListener('click', async ()=>{
+  $('btn-ready').onclick = async ()=>{
     await update(ref(db, `rooms/${state.roomCode}/players/${uid}`), { ready:true, connected:true });
-    $('btn-ready').textContent = 'En attente de l\\'autre joueur…';
+    $('btn-ready').textContent = 'En attente de l\'autre joueur…';
     $('btn-ready').disabled = true;
-  }, { once:true });
+  };
 }
 
 function renderWaitPlayers(players){
@@ -251,7 +256,6 @@ async function maybeStartGame(players){
   const chat = list.find(p=>p.role==='chat');
   const mouse = list.find(p=>p.role==='mouse');
   if (chat && mouse && chat.ready && mouse.ready){
-    // transaction so only one client actually flips the phase
     await runTransaction(ref(db, `rooms/${state.roomCode}/phase`), (cur)=>{
       if (cur === 'lobby' || cur == null) return 'hiding';
       return cur;
@@ -267,42 +271,37 @@ async function maybeStartGame(players){
   }
 }
 
-function escapeHtml(s){
-  const d = document.createElement('div'); d.textContent = s ?? ''; return d.innerHTML;
-}
-
-/* ---------------------------------------------------------------- */
-/*  GAME SCREEN                                                       */
-/* ---------------------------------------------------------------- */
-let gameStarted = false;
+/* GAME SCREEN */
 async function enterGame(){
-  if (gameStarted) return;
-  gameStarted = true;
+  if (state.gameStarted) return;
+  state.gameStarted = true;
   showScreen('screen-game');
+  requestWakeLock();
+
   $('gt-code').textContent = 'SALON ' + state.roomCode;
   $('gt-role-chip').textContent = state.role==='chat' ? '🐱 CHAT' : '🐭 SOURIS';
-  $('gt-role-chip').classList.add(state.role==='chat'?'chat':'mouse');
+  $('gt-role-chip').className = `role-chip ${state.role==='chat'?'chat':'mouse'}`;
 
   initMap();
   startGeolocation();
   listenRoom();
-  listenPlayers();
   listenChallenges();
   setupTabs();
   setupChallengeForm();
   setupCapture();
 
   if (state.role === 'chat'){
-    setInterval(catTick, 4000);
+    if (state.catInterval) clearInterval(state.catInterval);
+    state.catInterval = setInterval(catTick, 4000);
   }
 }
 
 function initMap(){
   state.map = L.map('map', { zoomControl:false, attributionControl:false }).setView([48.699,2.417], 15);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom:19 }).addTo(state.map);
-  $('btn-recenter').addEventListener('click', ()=>{
+  $('btn-recenter').onclick = ()=>{
     if (state.lastPos) state.map.setView([state.lastPos.lat, state.lastPos.lng], 16);
-  });
+  };
 }
 
 function markerIcon(color, emoji){
@@ -316,7 +315,7 @@ function markerIcon(color, emoji){
 }
 
 function startGeolocation(){
-  if (!navigator.geolocation){ toast("Géolocalisation indisponible sur cet appareil."); return; }
+  if (!navigator.geolocation){ toast("GPS indisponible."); return; }
   state.watchId = navigator.geolocation.watchPosition(pos=>{
     const { latitude:lat, longitude:lng } = pos.coords;
     state.lastPos = { lat, lng };
@@ -328,7 +327,7 @@ function startGeolocation(){
     }
     if (state.role === 'chat') checkOutOfZone(lat,lng);
   }, err=>{
-    toast("Impossible d'accéder à ta position (" + err.message + ").");
+    toast("Erreur GPS : " + err.message);
   }, { enableHighAccuracy:true, maximumAge:2000, timeout:15000 });
 }
 
@@ -341,15 +340,13 @@ function updateMyMarker(lat,lng){
   }
 }
 
-/* ---- room-level listeners (phase, timer, circle) ---- */
-let roomData = {};
 function listenRoom(){
   onValue(ref(db, `rooms/${state.roomCode}`), (snap)=>{
     roomData = snap.val() || {};
     renderPhase();
     renderCircle();
   });
-  setInterval(renderPhase, 1000); // keep countdown ticking
+  setInterval(renderPhase, 1000);
 }
 
 function renderPhase(){
@@ -364,15 +361,14 @@ function renderPhase(){
     $('gt-phase').textContent = 'Phase de cachette';
     const remain = (roomData.hidingEndAt||0) - Date.now();
     $('gt-timer').textContent = fmtMMSS(remain);
+    $('hiding-overlay').style.display = 'flex';
+    $('hiding-count').textContent = fmtMMSS(remain);
+
     if (state.role === 'chat'){
-      $('hiding-overlay').style.display = 'flex';
       $('hiding-label').textContent = 'La Souris se cache…';
-      $('hiding-count').textContent = fmtMMSS(remain);
       $('hiding-sub').textContent = "Ta carte reste masquée jusqu'à la fin du décompte.";
     } else {
-      $('hiding-overlay').style.display = 'flex';
       $('hiding-label').textContent = 'Trouve ta cachette !';
-      $('hiding-count').textContent = fmtMMSS(remain);
       $('hiding-sub').textContent = "Le Chat ne voit rien pour l'instant. Planque-toi bien.";
     }
     if (remain <= 0) tryStartHunt();
@@ -386,11 +382,11 @@ function renderPhase(){
 }
 
 async function tryStartHunt(){
-  // any client can flip once, guarded by transaction
   const mySnap = await get(ref(db, `rooms/${state.roomCode}/players`));
   const players = mySnap.val() || {};
   const mouse = Object.values(players).find(p=>p.role==='mouse');
-  if (!mouse || mouse.lat==null) return; // wait until mouse has a position
+  if (!mouse || mouse.lat==null) return;
+
   await runTransaction(ref(db, `rooms/${state.roomCode}/phase`), cur=>{
     if (cur === 'hiding') return 'hunting';
     return cur;
@@ -416,7 +412,6 @@ function renderCircle(){
   }).addTo(state.map);
 }
 
-/* ---- cat-only tick: shrink schedule + out-of-zone growth ---- */
 function catTick(){
   if (!roomData.huntStartAt || !roomData.circle) return;
   const elapsed = Date.now() - roomData.huntStartAt;
@@ -439,8 +434,7 @@ function checkOutOfZone(lat,lng){
     document.body.classList.add('ooz-active');
     banner.style.display = 'flex';
     if (c.radius >= CIRCLE_MAX){
-      $('ooz-text').textContent = 'VOUS ÊTES HORS-ZONE ! La zone est déjà à son maximum, revenez immédiatement.';
-      // no growth countdown started while already maxed
+      $('ooz-text').textContent = 'VOUS ÊTES HORS-ZONE ! La zone est déjà à son maximum.';
       if (c.outOfZoneSince != null){
         update(ref(db, `rooms/${state.roomCode}/circle`), { outOfZoneSince: null });
       }
@@ -467,41 +461,22 @@ function checkOutOfZone(lat,lng){
   }
 }
 
-/* ---------------------------------------------------------------- */
-/*  Players listener (other player's marker only if role is chat &   */
-/*  hunting -> chat sees own pos only; mouse never sees the other)   */
-/*  Rule: chat only ever sees itself + circle; mouse only itself.    */
-/*  So we DON'T render the opponent marker at all — kept for possible*/
-/*  future use but intentionally unused per spec.                    */
-/* ---------------------------------------------------------------- */
-function listenPlayers(){
-  onValue(ref(db, `rooms/${state.roomCode}/players`), (snap)=>{
-    window.__players = snap.val() || {};
-  });
-}
-
-/* ---------------------------------------------------------------- */
-/*  Tabs / floating toolbar                                           */
-/* ---------------------------------------------------------------- */
 function setupTabs(){
   document.querySelectorAll('.ft-btn').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
+    btn.onclick = ()=>{
       document.querySelectorAll('.ft-btn').forEach(b=>b.classList.remove('active'));
       document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
       btn.classList.add('active');
       $(btn.dataset.tab).classList.add('active');
-      state.currentTab = btn.dataset.tab;
       if (btn.dataset.tab === 'tab-map' && state.map) setTimeout(()=>state.map.invalidateSize(), 50);
-    });
+    };
   });
 }
 
-/* ---------------------------------------------------------------- */
-/*  Challenges                                                        */
-/* ---------------------------------------------------------------- */
+/* DEFIS */
 function setupChallengeForm(){
   if (state.role === 'chat') $('chat-challenge-form').style.display = 'block';
-  $('btn-send-challenge').addEventListener('click', async ()=>{
+  $('btn-send-challenge').onclick = async ()=>{
     const text = $('ch-text').value.trim();
     const points = Math.max(1, parseInt($('ch-points').value||'10',10));
     if (!text){ toast('Écris un texte de défi.'); return; }
@@ -511,15 +486,13 @@ function setupChallengeForm(){
       status:'pending', photoURL:null
     });
     $('ch-text').value = '';
-    toast('Défi envoyé à la Souris !');
-  });
+    toast('Défi envoyé !');
+  };
 }
 
-let fileInputEl = null;
 function listenChallenges(){
   onValue(ref(db, `rooms/${state.roomCode}/challenges`), (snap)=>{
-    const data = snap.val() || {};
-    renderChallenges(data);
+    renderChallenges(snap.val() || {});
   });
 }
 
@@ -546,7 +519,7 @@ function renderChallenges(data){
         <div class="ch-text">${escapeHtml(c.text)}</div>
         <div class="ch-pts">+${c.points}</div>
       </div>
-      <div class="ch-meta">${statusChip} · expire ${new Date(c.expiresAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</div>
+      <div class="ch-meta">${statusChip}</div>
       ${c.photoURL ? `<img class="ch-photo" src="${c.photoURL}">` : ''}
       <div class="ch-actions"></div>
     `;
@@ -555,7 +528,7 @@ function renderChallenges(data){
       const btn = document.createElement('button');
       btn.className = 'btn btn-mint btn-sm';
       btn.textContent = '📷 Envoyer une preuve';
-      btn.addEventListener('click', ()=> openCameraFor(id));
+      btn.onclick = ()=> openCameraFor(id);
       actions.appendChild(btn);
     }
     wrap.appendChild(div);
@@ -570,7 +543,7 @@ function openCameraFor(challengeId){
   fileInputEl.capture = 'environment';
   fileInputEl.style.display = 'none';
   document.body.appendChild(fileInputEl);
-  fileInputEl.addEventListener('change', async ()=>{
+  fileInputEl.onchange = async ()=>{
     const file = fileInputEl.files[0];
     if (!file) return;
     toast('Envoi de la photo…');
@@ -582,41 +555,35 @@ function openCameraFor(challengeId){
       await update(ref(db, `rooms/${state.roomCode}/challenges/${challengeId}`), {
         photoURL:url, status:'submitted', submittedAt:Date.now()
       });
-      toast('Preuve envoyée au Chat !');
+      toast('Preuve envoyée !');
     }catch(e){
-      toast("Échec de l'envoi : " + e.message);
+      toast("Échec : " + e.message);
     }
-  });
+  };
   fileInputEl.click();
 }
 
-/* ---------------------------------------------------------------- */
-/*  Capture                                                            */
-/* ---------------------------------------------------------------- */
+/* CAPTURE */
 function setupCapture(){
   if (state.role === 'chat'){
     $('capture-title').textContent = 'Capture';
-    $('capture-desc').textContent = "Quand tu es certain d'avoir mis la main sur la Souris, déclare la capture.";
+    $('capture-desc').textContent = "Déclare la capture lorsque tu as attrapé la Souris.";
     $('btn-declare-capture').style.display = 'block';
-    $('btn-declare-capture').addEventListener('click', async ()=>{
+    $('btn-declare-capture').onclick = async ()=>{
       await update(ref(db, `rooms/${state.roomCode}/capture`), { requestedByCat:true, requestedAt:Date.now() });
-      toast('Demande envoyée à la Souris, en attente de confirmation…');
-    });
+      toast('Demande envoyée, en attente de confirmation…');
+    };
   } else {
     $('capture-title').textContent = 'Capture';
-    $('capture-desc').textContent = "Si le Chat t'attrape réellement, confirme ici pour figer ton temps de survie.";
+    $('capture-desc').textContent = "Si le Chat t'attrape, confirme ici.";
   }
 
   onValue(ref(db, `rooms/${state.roomCode}/capture`), (snap)=>{
     const cap = snap.val() || {};
     if (state.role === 'mouse'){
-      const badge = document.querySelector('.ft-btn[data-tab="tab-capture"]');
       if (cap.requestedByCat && !cap.confirmed){
         $('capture-desc').textContent = "Le Chat déclare t'avoir trouvée. Confirme si c'est vrai !";
         $('btn-confirm-capture').style.display = 'block';
-        if (badge && !badge.querySelector('.badge')){
-          const b = document.createElement('span'); b.className='badge'; b.textContent='!'; badge.appendChild(b);
-        }
       } else {
         $('btn-confirm-capture').style.display = 'none';
       }
@@ -626,25 +593,18 @@ function setupCapture(){
     }
   });
 
-  $('btn-confirm-capture').addEventListener('click', async ()=>{
+  $('btn-confirm-capture').onclick = async ()=>{
     const survival = Date.now() - (roomData.huntStartAt || Date.now());
     await update(ref(db, `rooms/${state.roomCode}/capture`), {
       confirmed:true, confirmedAt:Date.now(), survivalTimeMs: survival
     });
     await update(ref(db, `rooms/${state.roomCode}`), { phase:'review' });
-    toast('Capture confirmée. Temps de survie figé !');
-  });
+  };
 }
 
-/* ---------------------------------------------------------------- */
-/*  Review phase                                                      */
-/* ---------------------------------------------------------------- */
+/* REVIEW & END */
 function renderReview(){
   $('review-title').textContent = state.role==='chat' ? 'Validation des défis' : 'Révision en cours';
-  $('review-sub').textContent = state.role==='chat'
-    ? 'Valide ou refuse chaque preuve envoyée par la Souris.'
-    : "Le Chat examine tes preuves, patiente un instant.";
-
   onValue(ref(db, `rooms/${state.roomCode}/challenges`), (snap)=>{
     const data = snap.val() || {};
     const gallery = $('review-gallery');
@@ -659,24 +619,22 @@ function renderReview(){
         <img src="${c.photoURL}">
         <div class="gi-body">
           <div class="ch-text">${escapeHtml(c.text)}</div>
-          <div class="ch-meta">+${c.points} points · <span class="chip-status ${
-            c.status==='validated'?'chip-validated':c.status==='refused'?'chip-refused':'chip-submitted'
-          }">${c.status==='validated'?'Validé':c.status==='refused'?'Refusé':'En attente'}</span></div>
+          <div class="ch-meta">+${c.points} pts</div>
           <div class="gi-actions"></div>
         </div>`;
       const actions = div.querySelector('.gi-actions');
       if (state.role === 'chat' && c.status === 'submitted'){
         const okBtn = document.createElement('button');
         okBtn.className = 'btn btn-mint btn-sm'; okBtn.textContent = '✓ Valider';
-        okBtn.addEventListener('click', async ()=>{
+        okBtn.onclick = async ()=>{
           await update(ref(db, `rooms/${state.roomCode}/challenges/${id}`), { status:'validated' });
           const players = (await get(ref(db, `rooms/${state.roomCode}/players`))).val() || {};
           const mouse = Object.entries(players).find(([,p])=>p.role==='mouse');
           if (mouse) await update(ref(db, `rooms/${state.roomCode}/players/${mouse[0]}`), { score:(mouse[1].score||0)+c.points });
-        });
+        };
         const noBtn = document.createElement('button');
         noBtn.className = 'btn btn-ghost btn-sm'; noBtn.textContent = '✕ Refuser';
-        noBtn.addEventListener('click', ()=> update(ref(db, `rooms/${state.roomCode}/challenges/${id}`), { status:'refused' }));
+        noBtn.onclick = ()=> update(ref(db, `rooms/${state.roomCode}/challenges/${id}`), { status:'refused' });
         actions.appendChild(okBtn); actions.appendChild(noBtn);
       }
       gallery.appendChild(div);
@@ -685,13 +643,11 @@ function renderReview(){
     if (state.role === 'chat') $('btn-finish-review').style.display = 'block';
   });
 }
-$('btn-finish-review').addEventListener('click', async ()=>{
-  await update(ref(db, `rooms/${state.roomCode}`), { phase:'ended' });
-});
 
-/* ---------------------------------------------------------------- */
-/*  End / podium                                                      */
-/* ---------------------------------------------------------------- */
+$('btn-finish-review').onclick = async ()=>{
+  await update(ref(db, `rooms/${state.roomCode}`), { phase:'ended' });
+};
+
 function renderEnd(){
   const survival = (roomData.capture && roomData.capture.survivalTimeMs) || 0;
   $('end-survival').textContent = fmtMMSS(survival);
@@ -711,8 +667,10 @@ function renderEnd(){
     });
   });
 }
-$('btn-new-game').addEventListener('click', ()=>{
+
+function resetGame(){
   if (state.watchId) navigator.geolocation.clearWatch(state.watchId);
-  localStorage.removeItem('ccd_room');
+  if (state.catInterval) clearInterval(state.catInterval);
+  if (state.wakeLock) state.wakeLock.release();
   location.reload();
-});
+}
