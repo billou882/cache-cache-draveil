@@ -4,7 +4,7 @@ body, html { width: 100%; height: 100%; background: #121212; color: #fff; overfl
 .screen { display: none; width: 100%; height: 100%; position: absolute; top:0; left:0; flex-direction: column; }
 .screen.active { display: flex; }
 
-.card { background: #1e1e1e; border-radius: 12px; padding: 20px; margin: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
+.card { background: #1e1e1e; border-radius: 12px; padding: 20px; margin: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); overflow-y: auto; max-height: 90vh; }
 .text-center { text-align: center; }
 .muted { color: #aaa; font-size: 13px; }
 .err-msg { color: #ff5470; font-size: 13px; margin-bottom: 10px; }
@@ -48,7 +48,6 @@ input[type="text"], input[type="number"] { width: 100%; padding: 12px; border-ra
 .status-wait { background: #ffd16622; color: #ffd166; }
 
 .game-header { background: #1e1e1e; padding: 10px 15px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; }
-.badge { background: #333; padding: 3px 6px; border-radius: 4px; font-size: 11px; font-family: monospace; }
 .role-chip { padding: 3px 8px; border-radius: 10px; font-size: 11px; font-weight: bold; }
 .role-chip.chat { background: #f5a62322; color: #f5a623; }
 .role-chip.mouse { background: #4fd1ae22; color: #4fd1ae; }
