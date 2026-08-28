@@ -39,8 +39,19 @@
         <hr>
         <div class="form-group">
           <label>Temps pour se cacher (minutes)</label>
-          <input type="number" id="in-hide-min" value="5" min="1" max="15">
+          <input type="number" id="in-hide-min" value="5" min="1" max="30" inputmode="numeric" pattern="[0-9]*">
         </div>
+
+        <div class="form-group">
+          <label>Intervalle du cercle (minutes)</label>
+          <input type="number" id="in-circle-interval" value="5" min="1" max="30" inputmode="numeric" pattern="[0-9]*">
+        </div>
+
+        <div class="form-group">
+          <label>Changement du rayon par intervalle (mètres)</label>
+          <input type="number" id="in-circle-step" value="50" min="10" max="200" step="10" inputmode="numeric" pattern="[0-9]*">
+        </div>
+
         <button id="btn-create" class="btn btn-primary">Créer une partie</button>
         
         <div class="divider">OU</div>
@@ -73,7 +84,6 @@
   <div id="screen-game" class="screen">
     <div class="game-header">
       <div>
-        <span id="gt-code" class="badge">---</span>
         <span id="gt-role-chip" class="role-chip">---</span>
       </div>
       <div>
@@ -108,7 +118,7 @@
         <div id="chat-challenge-form" class="card" style="display:none;">
           <h4>Donner un défi à la Souris</h4>
           <input type="text" id="ch-text" placeholder="Ex: Prends une photo d'un banc rouge">
-          <input type="number" id="ch-points" value="10" min="5" step="5">
+          <input type="number" id="ch-points" value="10" min="5" step="5" inputmode="numeric" pattern="[0-9]*">
           <button id="btn-send-challenge" class="btn btn-primary btn-sm">Envoyer le défi</button>
         </div>
         <div id="challenges-list" class="challenges-list"></div>
