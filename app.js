@@ -32,8 +32,6 @@ try {
 const CIRCLE_START = 300;
 const CIRCLE_MIN = 50;
 const CIRCLE_MAX = 500;
-const CIRCLE_STEP = 50;
-const TIME_5_MIN_MS = 5 * 60 * 1000; 
 const CHALLENGE_TTL_MS = 10 * 60 * 1000;
 const COLORS = ["#f5a623","#4fd1ae","#ff5470","#8fc6ff","#c792ea","#ffd166","#ff8fab","#7bd389"];
 
@@ -145,7 +143,6 @@ function clearSession() {
   localStorage.removeItem('ccd_session');
 }
 
-// RESTAURATION AUTOMATIQUE DE LA SESSION AU CHARGEMENT DE LA PAGE
 async function checkAndRestoreSession() {
   const rawSession = localStorage.getItem('ccd_session');
   if (!rawSession) return false;
@@ -165,13 +162,11 @@ async function checkAndRestoreSession() {
       return false;
     }
 
-    // Restauration de l'état
     state.roomCode = session.roomCode;
     state.role = session.role;
     state.pseudo = session.pseudo;
     state.color = session.color;
 
-    // Mise à jour sur Firebase
     await update(ref(db, `rooms/${state.roomCode}/players/${uid}`), {
       connected: true,
       updatedAt: Date.now()
@@ -194,7 +189,6 @@ async function checkAndRestoreSession() {
   }
 }
 
-// QUITTER LA PARTIE VOLONTAIREMENT
 async function quitGame() {
   if (confirm("Es-tu sûr de vouloir quitter la partie ?")) {
     if (state.roomCode) {
@@ -218,6 +212,9 @@ async function createGame(){
   try {
     const pseudo = $('in-pseudo').value.trim();
     const hideMin = Math.max(1, parseInt($('in-hide-min').value||'5',10));
+    const circleIntervalMin = Math.max(1, parseInt($('in-circle-interval').value||'5',10));
+    const circleStep = Math.max(10, parseInt($('in-circle-step').value||'50',10));
+
     if (!pseudo){ $('home-err').textContent = 'Choisis un pseudo.'; return; }
     if (!state.role){ $('home-err').textContent = 'Choisis un rôle (Chat ou Souris).'; return; }
     $('home-err').textContent = '';
@@ -234,6 +231,8 @@ async function createGame(){
     await set(ref(db, `rooms/${code}`), {
       createdAt: Date.now(),
       hideDurationMin: hideMin,
+      circleIntervalMin: circleIntervalMin,
+      circleStep: circleStep,
       phase: 'lobby',
       circle: null,
       capture: { requestedByCat:false, confirmed:false }
@@ -371,7 +370,6 @@ async function enterGame(){
   showScreen('screen-game');
   requestWakeLock();
 
-  $('gt-code').textContent = 'SALON ' + state.roomCode;
   $('gt-role-chip').textContent = state.role==='chat' ? '🐱 CHAT' : '🐭 SOURIS';
   $('gt-role-chip').className = `role-chip ${state.role==='chat'?'chat':'mouse'}`;
 
@@ -550,6 +548,9 @@ async function handleZoneLogic(lat, lng){
   const banner = $('ooz-banner');
   const now = Date.now();
 
+  const circleIntervalMs = (roomData.circleIntervalMin || 5) * 60 * 1000;
+  const circleStep = roomData.circleStep || 50;
+
   banner.style.display = 'flex';
 
   if (outside) {
@@ -558,13 +559,13 @@ async function handleZoneLogic(lat, lng){
       update(ref(db, `rooms/${state.roomCode}/circle`), { outOfZoneSince: now, inZoneSince: null });
       $('ooz-text').textContent = "⚠️ VOUS ÊTES HORS-ZONE ! REVENEZ DANS LE CERCLE !";
     } else {
-      const remain = TIME_5_MIN_MS - (now - c.outOfZoneSince);
+      const remain = circleIntervalMs - (now - c.outOfZoneSince);
       if (remain <= 0) {
-        const newRadius = Math.min(CIRCLE_MAX, c.radius + CIRCLE_STEP);
+        const newRadius = Math.min(CIRCLE_MAX, c.radius + circleStep);
         update(ref(db, `rooms/${state.roomCode}/circle`), { radius: newRadius, outOfZoneSince: now });
-        toast(`⚠️ Hors-zone depuis 5 min ! La zone s'agrandit à ${newRadius}m`);
+        toast(`⚠️ Hors-zone ! La zone s'agrandit à ${newRadius}m (+${circleStep}m)`);
       } else {
-        $('ooz-text').textContent = `🚨 HORS-ZONE ! Entrez dans le cercle sinon il s'agrandit (+50m) dans ${fmtMMSS(remain)}`;
+        $('ooz-text').textContent = `🚨 HORS-ZONE ! Entrez dans le cercle sinon il s'agrandit (+${circleStep}m) dans ${fmtMMSS(remain)}`;
       }
     }
 
@@ -574,9 +575,9 @@ async function handleZoneLogic(lat, lng){
       update(ref(db, `rooms/${state.roomCode}/circle`), { inZoneSince: now, outOfZoneSince: null });
       $('ooz-text').textContent = "✅ VOUS ÊTES DANS LA ZONE";
     } else {
-      const remain = TIME_5_MIN_MS - (now - c.inZoneSince);
+      const remain = circleIntervalMs - (now - c.inZoneSince);
       if (remain <= 0) {
-        const newRadius = Math.max(CIRCLE_MIN, c.radius - CIRCLE_STEP);
+        const newRadius = Math.max(CIRCLE_MIN, c.radius - circleStep);
         
         const playersSnap = await get(ref(db, `rooms/${state.roomCode}/players`));
         const players = playersSnap.val() || {};
@@ -593,9 +594,9 @@ async function handleZoneLogic(lat, lng){
           radius: newRadius, 
           inZoneSince: now 
         });
-        toast(`🎯 5 min dans la zone ! Le cercle s'est réduit à ${newRadius}m et s'est régénéré décalé.`);
+        toast(`🎯 Le cercle s'est réduit à ${newRadius}m (-${circleStep}m) et s'est régénéré !`);
       } else {
-        $('ooz-text').textContent = `🎯 DANS LA ZONE. Rétrécissement (-50m) dans ${fmtMMSS(remain)}`;
+        $('ooz-text').textContent = `🎯 DANS LA ZONE. Rétrécissement (-${circleStep}m) dans ${fmtMMSS(remain)}`;
       }
     }
   }
@@ -817,7 +818,6 @@ function resetGame(){
 }
 
 document.addEventListener('DOMContentLoaded', async ()=>{
-  // Vérification de session enregistrée au démarrage
   const restored = await checkAndRestoreSession();
   if (!restored) {
     showScreen('screen-home');
