@@ -14,50 +14,57 @@
   <!-- ÉCRAN ACCUEIL -->
   <div id="screen-home" class="screen active">
     <div class="card">
-      <h2>🐱 Cache-Cache GPS 🐭</h2>
+      <div class="app-title">
+        <span class="logo">🐱</span>
+        <h2>Cache-Cache GPS</h2>
+        <span class="logo">🐭</span>
+      </div>
+
       <div id="home-err" class="err-msg"></div>
 
       <div class="form-group">
-        <label>Pseudo</label>
+        <label>Mon pseudo</label>
         <input type="text" id="in-pseudo" placeholder="Ex: Alex" maxlength="15">
       </div>
 
       <div class="form-group">
-        <label>Couleur</label>
+        <label>Couleur du marqueur</label>
         <div id="swatches" class="swatches"></div>
       </div>
 
       <div class="form-group">
-        <label>Rôle</label>
+        <label>Mon rôle</label>
         <div class="role-selector">
           <button type="button" id="role-chat" class="btn-role">🐱 Chat</button>
           <button type="button" id="role-mouse" class="btn-role">🐭 Souris</button>
         </div>
       </div>
 
-      <div id="create-block" style="display:none;">
-        <hr>
+      <div id="create-block" class="create-block" style="display:none;">
+        <hr class="separator">
+        
         <div class="form-group">
-          <label>Temps pour se cacher (minutes)</label>
-          <input type="number" id="in-hide-min" value="5" min="1" max="30" inputmode="numeric" pattern="[0-9]*">
+          <label>Temps pour se cacher (min)</label>
+          <input type="tel" id="in-hide-min" value="5" min="1" max="30" inputmode="numeric" pattern="[0-9]*">
         </div>
 
         <div class="form-group">
-          <label>Intervalle du cercle (minutes)</label>
-          <input type="number" id="in-circle-interval" value="5" min="1" max="30" inputmode="numeric" pattern="[0-9]*">
+          <label>Intervalle du cercle (min)</label>
+          <input type="tel" id="in-circle-interval" value="5" min="1" max="30" inputmode="numeric" pattern="[0-9]*">
         </div>
 
         <div class="form-group">
-          <label>Changement du rayon par intervalle (mètres)</label>
-          <input type="number" id="in-circle-step" value="50" min="10" max="200" step="10" inputmode="numeric" pattern="[0-9]*">
+          <label>Rétrécissement / Agrandissement (mètres)</label>
+          <input type="tel" id="in-circle-step" value="50" min="10" max="200" step="10" inputmode="numeric" pattern="[0-9]*">
         </div>
 
         <button id="btn-create" class="btn btn-primary">Créer une partie</button>
         
-        <div class="divider">OU</div>
+        <div class="divider"><span>OU</span></div>
 
         <div class="form-group">
-          <input type="text" id="in-join-code" placeholder="CODE DE SALON" style="text-transform:uppercase;">
+          <label>Code de salon (4 chiffres)</label>
+          <input type="tel" id="in-join-code" placeholder="1234" maxlength="4" inputmode="numeric" pattern="[0-9]*" class="input-code">
         </div>
         <button id="btn-join" class="btn btn-secondary">Rejoindre la partie</button>
       </div>
@@ -71,8 +78,8 @@
         <h3>Salon de jeu</h3>
         <button id="btn-quit-wait" class="btn-quit">🚪 Quitter</button>
       </div>
-      <p class="muted">Partage ce code à l'autre joueur :</p>
-      <div id="wait-code" class="code-box">-----</div>
+      <p class="muted text-center">Partage ce code à 4 chiffres :</p>
+      <div id="wait-code" class="code-box">----</div>
       
       <div id="wait-players" class="players-list"></div>
 
@@ -83,10 +90,8 @@
   <!-- ÉCRAN DE JEU -->
   <div id="screen-game" class="screen">
     <div class="game-header">
-      <div>
-        <span id="gt-role-chip" class="role-chip">---</span>
-      </div>
-      <div>
+      <span id="gt-role-chip" class="role-chip">---</span>
+      <div class="timer-wrapper">
         <span id="gt-phase" class="muted">---</span>
         <span id="gt-timer" class="timer-display">00:00</span>
       </div>
@@ -117,25 +122,29 @@
       <div id="tab-challenges" class="tab">
         <div id="chat-challenge-form" class="card" style="display:none;">
           <h4>Donner un défi à la Souris</h4>
-          <input type="text" id="ch-text" placeholder="Ex: Prends une photo d'un banc rouge">
-          <input type="number" id="ch-points" value="10" min="5" step="5" inputmode="numeric" pattern="[0-9]*">
+          <div class="form-group" style="margin-top:10px;">
+            <input type="text" id="ch-text" placeholder="Ex: Prends une photo d'un banc rouge">
+          </div>
+          <div class="form-group">
+            <input type="tel" id="ch-points" value="10" min="5" step="5" inputmode="numeric" pattern="[0-9]*" placeholder="Points">
+          </div>
           <button id="btn-send-challenge" class="btn btn-primary btn-sm">Envoyer le défi</button>
         </div>
         <div id="challenges-list" class="challenges-list"></div>
-        <div id="challenges-empty" class="muted text-center">Aucun défi pour le moment.</div>
+        <div id="challenges-empty" class="muted text-center" style="margin-top: 30px;">Aucun défi pour le moment.</div>
       </div>
 
       <div id="tab-capture" class="tab">
         <div class="card text-center">
           <h3 id="capture-title">Capture</h3>
-          <p id="capture-desc" class="muted"></p>
+          <p id="capture-desc" class="muted" style="margin: 15px 0;"></p>
           <button id="btn-declare-capture" class="btn btn-danger" style="display:none;">🐱 Chat : Déclarer la capture</button>
           <button id="btn-confirm-capture" class="btn btn-success" style="display:none;">🐭 Souris : Confirmer l'attrape</button>
         </div>
       </div>
     </div>
 
-    <!-- Barre de Navigation en Bas -->
+    <!-- Navigation du Bas -->
     <div class="footer-tabs">
       <button class="ft-btn active" data-tab="tab-map">🗺️ Carte</button>
       <button class="ft-btn" data-tab="tab-challenges">🎯 Défis</button>
@@ -148,8 +157,8 @@
     <div class="card">
       <h3 id="review-title">Validation des défis</h3>
       <div id="review-gallery" class="gallery-grid"></div>
-      <div id="review-empty" class="muted text-center">Aucun défi photo envoyé.</div>
-      <button id="btn-finish-review" class="btn btn-primary" style="display:none; margin-top:15px;">Voir les résultats finals</button>
+      <div id="review-empty" class="muted text-center" style="margin-top: 20px;">Aucun défi photo envoyé.</div>
+      <button id="btn-finish-review" class="btn btn-primary" style="display:none; margin-top:20px;">Voir les résultats finals</button>
     </div>
   </div>
 
@@ -157,9 +166,9 @@
   <div id="screen-end" class="screen">
     <div class="card text-center">
       <h2>🎉 Partie Terminée !</h2>
-      <p>Temps de survie de la Souris : <b id="end-survival">00:00</b></p>
-      <hr>
-      <h4>Scores :</h4>
+      <p style="margin-top: 10px;">Temps de survie de la Souris : <b id="end-survival" style="color: #ff7a33;">00:00</b></p>
+      <hr class="separator">
+      <h4 style="margin-bottom: 10px;">Scores :</h4>
       <div id="end-scores"></div>
       <button id="btn-new-game" class="btn btn-primary" style="margin-top:20px;">Retour à l'accueil</button>
     </div>
