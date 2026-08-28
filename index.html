@@ -56,7 +56,10 @@
   <!-- ÉCRAN SALLE D'ATTENTE -->
   <div id="screen-wait" class="screen">
     <div class="card">
-      <h3>Salon de jeu</h3>
+      <div class="header-with-quit">
+        <h3>Salon de jeu</h3>
+        <button id="btn-quit-wait" class="btn-quit">🚪 Quitter</button>
+      </div>
       <p class="muted">Partage ce code à l'autre joueur :</p>
       <div id="wait-code" class="code-box">-----</div>
       
@@ -77,6 +80,7 @@
         <span id="gt-phase" class="muted">---</span>
         <span id="gt-timer" class="timer-display">00:00</span>
       </div>
+      <button id="btn-quit-game" class="btn-quit-sm" title="Quitter la partie">🚪</button>
     </div>
 
     <!-- Bannière Avertissement Zone -->
@@ -147,7 +151,7 @@
       <hr>
       <h4>Scores :</h4>
       <div id="end-scores"></div>
-      <button id="btn-new-game" class="btn btn-primary" style="margin-top:200px;">Retour à l'accueil</button>
+      <button id="btn-new-game" class="btn btn-primary" style="margin-top:20px;">Retour à l'accueil</button>
     </div>
   </div>
 
