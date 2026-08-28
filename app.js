@@ -26,14 +26,14 @@ try {
   db = getDatabase(app);
   storage = getStorage(app);
 } catch(e) {
-  console.error("Erreur d'initialisation Firebase", e);
+  console.error("Erreur Firebase:", e);
 }
 
 const CIRCLE_START = 300;
 const CIRCLE_MIN = 50;
 const CIRCLE_MAX = 500;
 const CHALLENGE_TTL_MS = 10 * 60 * 1000;
-const COLORS = ["#ff7a33","#4fd1ae","#ff5470","#8fc6ff","#c792ea","#ffd166","#ff8fab","#7bd389"];
+const COLORS = ["#ff6b2b","#2ee59d","#ff3b5c","#8fc6ff","#c792ea","#ffd166","#ff8fab","#7bd389"];
 
 function uuid(){
   if (crypto.randomUUID) return crypto.randomUUID();
@@ -113,7 +113,7 @@ function generateRandomOffsetCenter(centerLat, centerLng, radius) {
   return { lat: centerLat + dLat, lng: centerLng + dLng };
 }
 
-// CODE À 4 CHIFFRES
+// FORCE UN CODE À 4 CHIFFRES (STRICTEMENT NUMÉRIQUE)
 function makeNumericCode(){
   return Math.floor(1000 + Math.random() * 9000).toString();
 }
@@ -147,6 +147,13 @@ async function checkAndRestoreSession() {
 
   try {
     const session = JSON.parse(rawSession);
+    
+    // Si l'ancien code sauvegardé n'est pas 4 chiffres (ex: UMUG8), on purge
+    if (!session.roomCode || session.roomCode.length !== 4 || isNaN(session.roomCode)) {
+      clearSession();
+      return false;
+    }
+
     const snap = await get(ref(db, `rooms/${session.roomCode}`));
     
     if (!snap.exists()) {
@@ -218,6 +225,7 @@ async function createGame(){
     $('home-err').textContent = '';
     state.pseudo = pseudo; state.isHost = true;
 
+    // Génération du code à 4 chiffres (Ex: 4829)
     let code;
     for (let tries=0; tries<15; tries++){
       code = makeNumericCode();
@@ -250,11 +258,11 @@ async function joinGame(){
     const code = $('in-join-code').value.trim();
     if (!pseudo){ $('home-err').textContent = 'Choisis un pseudo.'; return; }
     if (!state.role){ $('home-err').textContent = 'Choisis un rôle (Chat ou Souris).'; return; }
-    if (!code || code.length !== 4 || isNaN(code)){ $('home-err').textContent = 'Entre un code à 4 chiffres.'; return; }
+    if (!code || code.length !== 4 || isNaN(code)){ $('home-err').textContent = 'Saisis un code à 4 chiffres.'; return; }
     $('home-err').textContent = '';
 
     const snap = await get(ref(db, `rooms/${code}`));
-    if (!snap.exists()){ $('home-err').textContent = "Ce salon n'existe pas."; return; }
+    if (!snap.exists()){ $('home-err').textContent = "Salon introuvable. Vérifie le code."; return; }
     const room = snap.val();
     const players = room.players || {};
     const takenRoles = Object.values(players).filter(p=>p.uid!==uid).map(p=>p.role);
@@ -305,8 +313,9 @@ async function enterWaiting(){
 
   $('btn-ready').onclick = async ()=>{
     await update(ref(db, `rooms/${state.roomCode}/players/${uid}`), { ready:true, connected:true });
-    $('btn-ready').textContent = 'En attente de l\'autre joueur…';
+    $('btn-ready').textContent = 'En attente du second joueur…';
     $('btn-ready').disabled = true;
+    $('btn-ready').classList.remove('btn-pulse');
   };
 }
 
@@ -401,10 +410,10 @@ function initMap(){
 function markerIcon(color, emoji){
   return L.divIcon({
     className:'',
-    html:`<div style="width:36px;height:36px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);
-      background:${color};display:flex;align-items:center;justify-content:center;box-shadow:0 4px 12px #0008;border:2px solid #fff2;">
-      <span style="transform:rotate(45deg);font-size:18px;">${emoji}</span></div>`,
-    iconSize:[36,36], iconAnchor:[18,36]
+    html:`<div style="width:38px;height:38px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);
+      background:${color};display:flex;align-items:center;justify-content:center;box-shadow:0 6px 16px rgba(0,0,0,0.6);border:2px solid rgba(255,255,255,0.8);">
+      <span style="transform:rotate(45deg);font-size:20px;">${emoji}</span></div>`,
+    iconSize:[38,38], iconAnchor:[19,38]
   });
 }
 
@@ -464,10 +473,10 @@ function renderPhase(){
 
     if (state.role === 'chat'){
       $('hiding-label').textContent = 'La Souris se cache…';
-      $('hiding-sub').textContent = "Ta carte reste masquée jusqu'à la fin du décompte.";
+      $('hiding-sub').textContent = "Patientez, votre carte se débloque à la fin du décompte.";
     } else {
-      $('hiding-label').textContent = 'Trouve ta cachette !';
-      $('hiding-sub').textContent = "Le Chat ne voit rien pour l'instant. Planque-toi bien.";
+      $('hiding-label').textContent = 'Trouve vite ta cachette !';
+      $('hiding-sub').textContent = "Le Chat ne peut pas voir votre position pour le moment.";
     }
     if (remain <= 0) tryStartHunt();
   } else if (phase === 'hunting'){
@@ -514,8 +523,8 @@ function renderCircle(){
   if (!c || !c.lat) return;
   if (state.circleLayer) state.map.removeLayer(state.circleLayer);
   state.circleLayer = L.circle([c.lat,c.lng], {
-    radius: c.radius, color: '#ff7a33', weight:2.5, fillColor:'#ff7a33', fillOpacity:.08,
-    dashArray:'6 6'
+    radius: c.radius, color: '#ff6b2b', weight:3, fillColor:'#ff6b2b', fillOpacity:.1,
+    dashArray:'8 8'
   }).addTo(state.map);
 }
 
@@ -563,7 +572,7 @@ async function handleZoneLogic(lat, lng){
         update(ref(db, `rooms/${state.roomCode}/circle`), { radius: newRadius, outOfZoneSince: now });
         toast(`⚠️ Hors-zone ! La zone s'agrandit à ${newRadius}m (+${circleStep}m)`);
       } else {
-        $('ooz-text').textContent = `🚨 HORS-ZONE ! Entrez dans le cercle sinon il s'agrandit (+${circleStep}m) dans ${fmtMMSS(remain)}`;
+        $('ooz-text').textContent = `🚨 HORS-ZONE ! Entrez dans le cercle sinon il s'agrandit dans ${fmtMMSS(remain)}`;
       }
     }
 
@@ -571,7 +580,7 @@ async function handleZoneLogic(lat, lng){
     banner.className = "ooz-banner ok";
     if (c.inZoneSince == null) {
       update(ref(db, `rooms/${state.roomCode}/circle`), { inZoneSince: now, outOfZoneSince: null });
-      $('ooz-text').textContent = "✅ VOUS ÊTES DANS LA ZONE";
+      $('ooz-text').textContent = "✅ DANS LA ZONE";
     } else {
       const remain = circleIntervalMs - (now - c.inZoneSince);
       if (remain <= 0) {
@@ -592,7 +601,7 @@ async function handleZoneLogic(lat, lng){
           radius: newRadius, 
           inZoneSince: now 
         });
-        toast(`🎯 Le cercle s'est réduit à ${newRadius}m (-${circleStep}m) et s'est régénéré !`);
+        toast(`🎯 Le cercle s'est réduit à ${newRadius}m (-${circleStep}m) !`);
       } else {
         $('ooz-text').textContent = `🎯 DANS LA ZONE. Rétrécissement (-${circleStep}m) dans ${fmtMMSS(remain)}`;
       }
@@ -617,14 +626,14 @@ function setupChallengeForm(){
   $('btn-send-challenge').onclick = async ()=>{
     const text = $('ch-text').value.trim();
     const points = Math.max(1, parseInt($('ch-points').value||'10',10));
-    if (!text){ toast('Écris un texte de défi.'); return; }
+    if (!text){ toast('Saisis le texte de ton défi.'); return; }
     const newRef = push(ref(db, `rooms/${state.roomCode}/challenges`));
     await set(newRef, {
       text, points, createdAt: Date.now(), expiresAt: Date.now()+CHALLENGE_TTL_MS,
       status:'pending', photoURL:null
     });
     $('ch-text').value = '';
-    toast('Défi envoyé !');
+    toast('Défi envoyé avec succès !');
   };
 }
 
@@ -657,7 +666,7 @@ function renderChallenges(data){
     div.innerHTML = `
       <div class="ch-top">
         <div class="ch-text">${escapeHtml(c.text)}</div>
-        <div class="ch-pts">+${c.points}</div>
+        <div class="ch-pts">+${c.points} pts</div>
       </div>
       <div class="ch-meta">${statusChip}</div>
       ${c.photoURL ? `<img class="ch-photo" src="${c.photoURL}">` : ''}
@@ -667,7 +676,7 @@ function renderChallenges(data){
     if (state.role === 'mouse' && c.status === 'pending' && !expired){
       const btn = document.createElement('button');
       btn.className = 'btn btn-mint btn-sm';
-      btn.textContent = '📷 Envoyer une preuve';
+      btn.textContent = '📷 Prendre une photo';
       btn.onclick = ()=> openCameraFor(id);
       actions.appendChild(btn);
     }
@@ -686,7 +695,7 @@ function openCameraFor(challengeId){
   fileInputEl.onchange = async ()=>{
     const file = fileInputEl.files[0];
     if (!file) return;
-    toast('Envoi de la photo…');
+    toast('Envoi de la preuve photo…');
     try{
       const path = `rooms/${state.roomCode}/challenges/${challengeId}.jpg`;
       const sRef = storageRef(storage, path);
@@ -695,9 +704,9 @@ function openCameraFor(challengeId){
       await update(ref(db, `rooms/${state.roomCode}/challenges/${challengeId}`), {
         photoURL:url, status:'submitted', submittedAt:Date.now()
       });
-      toast('Preuve envoyée !');
+      toast('Preuve photo transmise !');
     }catch(e){
-      toast("Échec : " + e.message);
+      toast("Échec du transfert : " + e.message);
     }
   };
   fileInputEl.click();
@@ -706,22 +715,22 @@ function openCameraFor(challengeId){
 function setupCapture(){
   if (state.role === 'chat'){
     $('capture-title').textContent = 'Capture';
-    $('capture-desc').textContent = "Déclare la capture lorsque tu as attrapé la Souris.";
+    $('capture-desc').textContent = "Appuie sur le bouton quand tu es au niveau de la Souris.";
     $('btn-declare-capture').style.display = 'block';
     $('btn-declare-capture').onclick = async ()=>{
       await update(ref(db, `rooms/${state.roomCode}/capture`), { requestedByCat:true, requestedAt:Date.now() });
-      toast('Demande envoyée…');
+      toast('Demande de capture envoyée à la Souris !');
     };
   } else {
     $('capture-title').textContent = 'Capture';
-    $('capture-desc').textContent = "Si le Chat t'attrape, confirme ici.";
+    $('capture-desc').textContent = "Si le Chat t'a trouvé, tu devras valider la capture ici.";
   }
 
   onValue(ref(db, `rooms/${state.roomCode}/capture`), (snap)=>{
     const cap = snap.val() || {};
     if (state.role === 'mouse'){
       if (cap.requestedByCat && !cap.confirmed){
-        $('capture-desc').textContent = "Le Chat déclare t'avoir trouvée. Confirme !";
+        $('capture-desc').textContent = "Le Chat déclare t'avoir attrapé ! Confirme ci-dessous.";
         $('btn-confirm-capture').style.display = 'block';
       } else {
         $('btn-confirm-capture').style.display = 'none';
@@ -742,7 +751,7 @@ function setupCapture(){
 }
 
 function renderReview(){
-  $('review-title').textContent = state.role==='chat' ? 'Validation des défis' : 'Révision en cours';
+  $('review-title').textContent = state.role==='chat' ? 'Validation des preuves photo' : 'Attente de validation';
   onValue(ref(db, `rooms/${state.roomCode}/challenges`), (snap)=>{
     const data = snap.val() || {};
     const gallery = $('review-gallery');
@@ -753,18 +762,18 @@ function renderReview(){
 
     submitted.forEach(([id,c])=>{
       const div = document.createElement('div');
-      div.className = 'gallery-item';
+      div.className = 'challenge-card';
       div.innerHTML = `
-        <img src="${c.photoURL}" style="width:100%;border-radius:8px;">
-        <div class="gi-body" style="margin-top:8px;">
-          <div class="ch-text">${escapeHtml(c.text)}</div>
-          <div class="ch-meta">+${c.points} pts</div>
-          <div class="gi-actions" style="margin-top:5px;"></div>
+        <img src="${c.photoURL}" style="width:100%;border-radius:12px;">
+        <div style="margin-top:10px;">
+          <div style="font-weight:800;">${escapeHtml(c.text)}</div>
+          <div class="muted" style="margin-top:2px;">Valeur: +${c.points} pts</div>
+          <div class="gi-actions" style="margin-top:10px; display:flex; gap:10px;"></div>
         </div>`;
       const actions = div.querySelector('.gi-actions');
       if (state.role === 'chat' && c.status === 'submitted'){
         const okBtn = document.createElement('button');
-        okBtn.className = 'btn btn-mint btn-sm'; okBtn.textContent = '✓ Valider';
+        okBtn.className = 'btn btn-mint btn-sm'; okBtn.textContent = '✓ Valider (+'+c.points+'pts)';
         okBtn.onclick = async ()=>{
           await update(ref(db, `rooms/${state.roomCode}/challenges/${id}`), { status:'validated' });
           const players = (await get(ref(db, `rooms/${state.roomCode}/players`))).val() || {};
@@ -798,11 +807,11 @@ function renderEnd(){
     Object.values(players).forEach(p=>{
       const row = document.createElement('div');
       row.className = 'player-slot';
-      row.innerHTML = `<div style="display:flex;align-items:center;gap:10px;width:100%;">
+      row.innerHTML = `<div style="display:flex;align-items:center;gap:12px;width:100%;">
         <div class="dot" style="background:${p.color}"></div>
-        <div><div style="font-weight:700;">${escapeHtml(p.pseudo)}</div>
+        <div><div style="font-weight:800;">${escapeHtml(p.pseudo)}</div>
         <div class="muted" style="font-size:11px;">${p.role==='chat'?'🐱 Chat':'🐭 Souris'}</div></div>
-        <div style="margin-left:auto;font-weight:bold;color:var(--accent-mint);">${p.score||0} pts</div></div>`;
+        <div style="margin-left:auto;font-weight:900;color:var(--accent-mint);font-size:16px;">${p.score||0} pts</div></div>`;
       wrap.appendChild(row);
     });
   });
