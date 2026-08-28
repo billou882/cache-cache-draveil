@@ -33,7 +33,7 @@ const CIRCLE_START = 300;
 const CIRCLE_MIN = 50;
 const CIRCLE_MAX = 500;
 const CHALLENGE_TTL_MS = 10 * 60 * 1000;
-const COLORS = ["#f5a623","#4fd1ae","#ff5470","#8fc6ff","#c792ea","#ffd166","#ff8fab","#7bd389"];
+const COLORS = ["#ff7a33","#4fd1ae","#ff5470","#8fc6ff","#c792ea","#ffd166","#ff8fab","#7bd389"];
 
 function uuid(){
   if (crypto.randomUUID) return crypto.randomUUID();
@@ -113,11 +113,9 @@ function generateRandomOffsetCenter(centerLat, centerLng, radius) {
   return { lat: centerLat + dLat, lng: centerLng + dLng };
 }
 
-function makeCode(){
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  let c = '';
-  for (let i=0;i<5;i++) c += chars[Math.floor(Math.random()*chars.length)];
-  return c;
+// CODE À 4 CHIFFRES
+function makeNumericCode(){
+  return Math.floor(1000 + Math.random() * 9000).toString();
 }
 
 function escapeHtml(s){
@@ -221,8 +219,8 @@ async function createGame(){
     state.pseudo = pseudo; state.isHost = true;
 
     let code;
-    for (let tries=0; tries<8; tries++){
-      code = makeCode();
+    for (let tries=0; tries<15; tries++){
+      code = makeNumericCode();
       const snap = await get(ref(db, `rooms/${code}`));
       if (!snap.exists()) break;
     }
@@ -249,10 +247,10 @@ async function createGame(){
 async function joinGame(){
   try {
     const pseudo = $('in-pseudo').value.trim();
-    const code = $('in-join-code').value.trim().toUpperCase();
+    const code = $('in-join-code').value.trim();
     if (!pseudo){ $('home-err').textContent = 'Choisis un pseudo.'; return; }
     if (!state.role){ $('home-err').textContent = 'Choisis un rôle (Chat ou Souris).'; return; }
-    if (!code){ $('home-err').textContent = 'Entre un code de salon.'; return; }
+    if (!code || code.length !== 4 || isNaN(code)){ $('home-err').textContent = 'Entre un code à 4 chiffres.'; return; }
     $('home-err').textContent = '';
 
     const snap = await get(ref(db, `rooms/${code}`));
@@ -403,10 +401,10 @@ function initMap(){
 function markerIcon(color, emoji){
   return L.divIcon({
     className:'',
-    html:`<div style="width:34px;height:34px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);
-      background:${color};display:flex;align-items:center;justify-content:center;box-shadow:0 3px 10px #0008;border:2px solid #fff2;">
-      <span style="transform:rotate(45deg);font-size:16px;">${emoji}</span></div>`,
-    iconSize:[34,34], iconAnchor:[17,34]
+    html:`<div style="width:36px;height:36px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);
+      background:${color};display:flex;align-items:center;justify-content:center;box-shadow:0 4px 12px #0008;border:2px solid #fff2;">
+      <span style="transform:rotate(45deg);font-size:18px;">${emoji}</span></div>`,
+    iconSize:[36,36], iconAnchor:[18,36]
   });
 }
 
@@ -517,7 +515,7 @@ function renderCircle(){
   if (state.circleLayer) state.map.removeLayer(state.circleLayer);
   state.circleLayer = L.circle([c.lat,c.lng], {
     radius: c.radius, color: '#ff7a33', weight:2.5, fillColor:'#ff7a33', fillOpacity:.08,
-    dashArray:'6 6', className:'radar-ring'
+    dashArray:'6 6'
   }).addTo(state.map);
 }
 
@@ -804,7 +802,7 @@ function renderEnd(){
         <div class="dot" style="background:${p.color}"></div>
         <div><div style="font-weight:700;">${escapeHtml(p.pseudo)}</div>
         <div class="muted" style="font-size:11px;">${p.role==='chat'?'🐱 Chat':'🐭 Souris'}</div></div>
-        <div style="margin-left:auto;font-weight:bold;color:#4fd1ae;">${p.score||0} pts</div></div>`;
+        <div style="margin-left:auto;font-weight:bold;color:var(--accent-mint);">${p.score||0} pts</div></div>`;
       wrap.appendChild(row);
     });
   });
