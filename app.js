@@ -1,7 +1,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
   getDatabase, ref, set, get, update, onValue, push,
-  onDisconnect, runTransaction
+  onDisconnect, runTransaction, remove
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 import {
   getStorage, ref as storageRef, uploadBytes, getDownloadURL
@@ -105,7 +105,6 @@ function haversine(lat1,lng1,lat2,lng2){
   return 2*R*Math.asin(Math.sqrt(a));
 }
 
-// Génère un centre de cercle décalé (entre 30% et 70% du rayon) pour que le joueur ne soit JAMAIS au milieu
 function generateRandomOffsetCenter(centerLat, centerLng, radius) {
   const minOffset = radius * 0.3;
   const maxOffset = radius * 0.7;
@@ -131,6 +130,81 @@ async function requestWakeLock(){
   try {
     if ('wakeLock' in navigator) state.wakeLock = await navigator.wakeLock.request('screen');
   } catch(e){}
+}
+
+function saveSession() {
+  localStorage.setItem('ccd_session', JSON.stringify({
+    roomCode: state.roomCode,
+    role: state.role,
+    pseudo: state.pseudo,
+    color: state.color
+  }));
+}
+
+function clearSession() {
+  localStorage.removeItem('ccd_session');
+}
+
+// RESTAURATION AUTOMATIQUE DE LA SESSION AU CHARGEMENT DE LA PAGE
+async function checkAndRestoreSession() {
+  const rawSession = localStorage.getItem('ccd_session');
+  if (!rawSession) return false;
+
+  try {
+    const session = JSON.parse(rawSession);
+    const snap = await get(ref(db, `rooms/${session.roomCode}`));
+    
+    if (!snap.exists()) {
+      clearSession();
+      return false;
+    }
+
+    const room = snap.val();
+    if (room.phase === 'ended') {
+      clearSession();
+      return false;
+    }
+
+    // Restauration de l'état
+    state.roomCode = session.roomCode;
+    state.role = session.role;
+    state.pseudo = session.pseudo;
+    state.color = session.color;
+
+    // Mise à jour sur Firebase
+    await update(ref(db, `rooms/${state.roomCode}/players/${uid}`), {
+      connected: true,
+      updatedAt: Date.now()
+    });
+    onDisconnect(ref(db, `rooms/${state.roomCode}/players/${uid}/connected`)).set(false);
+
+    toast("Session restaurée !");
+
+    if (room.phase === 'lobby') {
+      enterWaiting();
+    } else {
+      enterGame();
+    }
+    return true;
+
+  } catch (e) {
+    console.error("Échec de la restauration", e);
+    clearSession();
+    return false;
+  }
+}
+
+// QUITTER LA PARTIE VOLONTAIREMENT
+async function quitGame() {
+  if (confirm("Es-tu sûr de vouloir quitter la partie ?")) {
+    if (state.roomCode) {
+      await remove(ref(db, `rooms/${state.roomCode}/players/${uid}`));
+    }
+    clearSession();
+    if (state.watchId) navigator.geolocation.clearWatch(state.watchId);
+    if (state.wakeLock) try { state.wakeLock.release(); } catch(e){}
+    location.reload();
+  }
 }
 
 function selectRole(r){
@@ -164,6 +238,8 @@ async function createGame(){
       circle: null,
       capture: { requestedByCat:false, confirmed:false }
     });
+
+    saveSession();
     await writeSelfPlayer();
     await enterWaiting();
   } catch(e) {
@@ -190,6 +266,8 @@ async function joinGame(){
       return;
     }
     state.pseudo = pseudo; state.roomCode = code; state.isHost = false;
+
+    saveSession();
     await writeSelfPlayer();
     await enterWaiting();
   } catch(e) {
@@ -346,10 +424,7 @@ function startGeolocation(){
       update(ref(db, `rooms/${state.roomCode}/players/${uid}`), { lat, lng, updatedAt: now });
     }
     
-    // Si on est la Souris, on gère le glissement du cercle aux bords
     if (state.role === 'mouse') handleMouseCircleSlide(lat, lng);
-
-    // Si on est le Chat, on gère les timers et rétrécissement/agrandissement
     if (state.role === 'chat') handleZoneLogic(lat, lng);
   }, err=>{
     toast("Erreur GPS : " + err.message);
@@ -381,7 +456,7 @@ function renderPhase(){
   if (!phase) return;
 
   if (phase === 'review'){ showScreen('screen-review'); renderReview(); return; }
-  if (phase === 'ended'){ showScreen('screen-end'); renderEnd(); return; }
+  if (phase === 'ended'){ clearSession(); showScreen('screen-end'); renderEnd(); return; }
   showScreen('screen-game');
 
   if (phase === 'hiding'){
@@ -421,10 +496,7 @@ async function tryStartHunt(){
 
   await runTransaction(ref(db, `rooms/${state.roomCode}/circle`), cur=>{
     if (cur) return cur;
-
-    // Décalage aléatoire garanti au début (jamais au centre)
     const initCenter = generateRandomOffsetCenter(mouse.lat, mouse.lng, CIRCLE_START);
-
     return { 
       lat: initCenter.lat, 
       lng: initCenter.lng, 
@@ -451,7 +523,6 @@ function renderCircle(){
   }).addTo(state.map);
 }
 
-// SI LA SOURIS PASSE LA BORDURE DE LA ZONE, LE CERCLE GLISSE AVEC ELLE
 function handleMouseCircleSlide(mLat, mLng) {
   const c = roomData.circle;
   if (!c || !c.lat || roomData.phase !== 'hunting') return;
@@ -470,7 +541,6 @@ function handleMouseCircleSlide(mLat, mLng) {
   }
 }
 
-// GESTION DU RÉTRÉCISSEMENT ET AGRANDISSEMENT DE ZONE POUR LE CHAT
 async function handleZoneLogic(lat, lng){
   const c = roomData.circle;
   if (!c || !c.lat || roomData.phase !== 'hunting') return;
@@ -506,17 +576,14 @@ async function handleZoneLogic(lat, lng){
     } else {
       const remain = TIME_5_MIN_MS - (now - c.inZoneSince);
       if (remain <= 0) {
-        // VÉRIFICATION ET EXÉCUTION DU RÉTRÉCISSEMENT
         const newRadius = Math.max(CIRCLE_MIN, c.radius - CIRCLE_STEP);
         
-        // Récupération de la position actuelle de la Souris
         const playersSnap = await get(ref(db, `rooms/${state.roomCode}/players`));
         const players = playersSnap.val() || {};
         const mouse = Object.values(players).find(p => p.role === 'mouse');
 
         let newCenter = { lat: c.lat, lng: c.lng };
         if (mouse && mouse.lat != null) {
-          // Nouveau centre aléatoire garanti non centré autour de la position actuelle de la Souris
           newCenter = generateRandomOffsetCenter(mouse.lat, mouse.lng, newRadius);
         }
 
@@ -736,20 +803,25 @@ function renderEnd(){
         <div class="dot" style="background:${p.color}"></div>
         <div><div style="font-weight:700;">${escapeHtml(p.pseudo)}</div>
         <div class="muted" style="font-size:11px;">${p.role==='chat'?'🐱 Chat':'🐭 Souris'}</div></div>
-        <div style="margin-left:auto;font-weight:bold;color:var(--mint);">${p.score||0} pts</div></div>`;
+        <div style="margin-left:auto;font-weight:bold;color:#4fd1ae;">${p.score||0} pts</div></div>`;
       wrap.appendChild(row);
     });
   });
 }
 
 function resetGame(){
+  clearSession();
   if (state.watchId) navigator.geolocation.clearWatch(state.watchId);
   if (state.wakeLock) try{ state.wakeLock.release(); }catch(e){}
   location.reload();
 }
 
-document.addEventListener('DOMContentLoaded', ()=>{
-  showScreen('screen-home');
+document.addEventListener('DOMContentLoaded', async ()=>{
+  // Vérification de session enregistrée au démarrage
+  const restored = await checkAndRestoreSession();
+  if (!restored) {
+    showScreen('screen-home');
+  }
 
   const swatchesEl = $('swatches');
   if (swatchesEl) {
@@ -773,4 +845,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
   $('btn-create').addEventListener('click', createGame);
   $('btn-join').addEventListener('click', joinGame);
   $('btn-new-game').addEventListener('click', resetGame);
+  
+  $('btn-quit-wait').addEventListener('click', quitGame);
+  $('btn-quit-game').addEventListener('click', quitGame);
 });
